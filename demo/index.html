@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>particle-globe: customiser</title>
+    <meta name="description" content="A tiny particle globe for the web. Pick a preset, tune it, copy the code." />
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand">
+        <span class="logo" aria-hidden="true"></span>
+        <h1>particle-globe</h1>
+        <span class="meta">~13.5KB gzipped · no dependencies</span>
+      </div>
+      <nav class="links">
+        <code class="install">npm i particle-globe</code>
+        <a href="https://github.com/Dollimore/particle-globe">GitHub</a>
+      </nav>
+    </header>
+
+    <main class="layout">
+      <section class="stage-wrap" aria-label="Globe preview">
+        <div id="stage" class="stage"></div>
+        <p class="hint">Drag to spin</p>
+      </section>
+
+      <aside class="panel" aria-label="Settings">
+        <div class="panel-block">
+          <p class="panel-label">Presets</p>
+          <div id="presets" class="presets"></div>
+        </div>
+        <div id="sections"></div>
+        <div class="actions">
+          <button id="copy-code" class="primary" type="button">Copy code</button>
+          <button id="copy-link" type="button">Share</button>
+          <button id="reset" type="button">Reset</button>
+        </div>
+      </aside>
+    </main>
+
+    <p id="toast" class="toast" role="status" aria-live="polite"></p>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
