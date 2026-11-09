@@ -12,6 +12,11 @@
       try {
         var t = localStorage.getItem("pg-theme")
         if (t === "light" || t === "dark") document.documentElement.dataset.theme = t
+        var h = decodeURIComponent(location.hash.slice(1))
+        if (h) {
+          var s = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(h), function (c) { return c.charCodeAt(0) })))
+          if (s.theme === "light" || s.theme === "dark") document.documentElement.dataset.theme = s.theme
+        }
       } catch (e) {}
     </script>
   </head>

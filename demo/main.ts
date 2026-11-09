@@ -1,14 +1,38 @@
 import { createParticleGlobe, DEFAULT_OPTIONS, type ArcRoute, type GlobeInput, type GlobeOptions } from "../src/index"
 
 // ---------- presets ----------
-type Preset = { name: string; swatch: [string, string, string]; options: GlobeInput }
+// Each preset is a designed pair: `shared` holds the character (shape, motion, dot behaviour),
+// `light` and `dark` hold the full look for that theme (stage, dots, rim, globe fill, arcs).
+type Theme = "light" | "dark"
+type Preset = { name: string; swatch: [string, string, string]; shared?: GlobeInput; light: GlobeInput; dark: GlobeInput; atmo: Record<Theme, string> }
 const PRESETS: Preset[] = [
-  { name: "Stripe", swatch: ["#6b54f5", "#db61db", "#eb4d54"], options: { background: "#ffffff" } },
+  {
+    name: "Stripe",
+    swatch: ["#6b54f5", "#db61db", "#eb4d54"],
+    atmo: { light: "#9e94ff", dark: "#7c6cff" },
+    light: { background: "#ffffff" },
+    dark: {
+      colors: ["#8f7bff", "#e873e8", "#ff6b78"], gradientAngle: 57,
+      dots: { highlight: 0.55, intensity: 1.1, farSide: 0.4 },
+      rim: { color: "#5b46e0", strength: 0.75 },
+      arcs: { colors: ["#ff7fa3", "#ffb36b"] },
+      globe: { fill: "#110e2b", fillOpacity: 0.92 }, background: "#0a0820",
+    },
+  },
   {
     name: "Midnight",
     swatch: ["#3b82f6", "#22d3ee", "#a78bfa"],
-    options: {
-      colors: ["#3b82f6", "#22d3ee", "#a78bfa"], gradientAngle: 90,
+    atmo: { light: "#60a5fa", dark: "#3b82f6" },
+    shared: { gradientAngle: 90 },
+    light: {
+      colors: ["#2563eb", "#0891b2", "#7c3aed"],
+      dots: { highlight: 0.6, intensity: 1.05 },
+      rim: { color: "#c3d3f5", strength: 1 },
+      arcs: { colors: ["#0e7490", "#a21caf"] },
+      globe: { fill: "#ffffff", fillOpacity: 0.96 }, background: "#eef3fc",
+    },
+    dark: {
+      colors: ["#3b82f6", "#22d3ee", "#a78bfa"],
       dots: { highlight: 0.4, intensity: 1.1, farSide: 0.45 },
       rim: { color: "#3b5bdb", strength: 0.8 },
       arcs: { colors: ["#22d3ee", "#f0abfc"] },
@@ -18,24 +42,46 @@ const PRESETS: Preset[] = [
   {
     name: "Emerald",
     swatch: ["#0f5132", "#1d7a49", "#4cc283"],
-    options: {
-      colors: ["#0f5132", "#1d7a49", "#4cc283"], gradientAngle: 70, dots: { highlight: 0.6 },
+    atmo: { light: "#4cc283", dark: "#2fb673" },
+    shared: { gradientAngle: 70 },
+    light: {
+      colors: ["#0f5132", "#1d7a49", "#4cc283"], dots: { highlight: 0.6 },
       rim: { color: "#dcefe3" }, arcs: { colors: ["#1d7a49", "#a3e635"] }, background: "#f4f6f2",
+    },
+    dark: {
+      colors: ["#1f9d63", "#4cc283", "#bef264"],
+      dots: { highlight: 0.5, intensity: 1.1, farSide: 0.4 },
+      rim: { color: "#1d7a49", strength: 0.7 },
+      arcs: { colors: ["#4ade80", "#d9f99d"] },
+      globe: { fill: "#0a1a11", fillOpacity: 0.92 }, background: "#060f0a",
     },
   },
   {
     name: "Mono",
     swatch: ["#111827", "#111827", "#111827"],
-    options: {
+    atmo: { light: "#9ca3af", dark: "#9ca3af" },
+    light: {
       colors: ["#111827", "#111827", "#111827"], dots: { highlight: 0.65, twinkle: 0.15 },
       rim: { color: "#f1f2f4" }, arcs: { colors: ["#111827", "#111827"], opacity: 0.85 }, background: "#ffffff",
+    },
+    dark: {
+      colors: ["#f3f4f6", "#f3f4f6", "#f3f4f6"], dots: { highlight: 0.6, twinkle: 0.15, farSide: 0.35 },
+      rim: { color: "#2c2c2f", strength: 0.8 }, arcs: { colors: ["#f3f4f6", "#f3f4f6"], opacity: 0.85 },
+      globe: { fill: "#111112", fillOpacity: 1 }, background: "#09090a",
     },
   },
   {
     name: "Sunset",
     swatch: ["#f97316", "#ec4899", "#fde047"],
-    options: {
-      colors: ["#f97316", "#ec4899", "#fde047"], gradientAngle: 120, dots: { highlight: 0.35, farSide: 0.4 },
+    atmo: { light: "#fb923c", dark: "#f97316" },
+    shared: { gradientAngle: 120 },
+    light: {
+      colors: ["#ea580c", "#db2777", "#d99a06"], dots: { highlight: 0.55 },
+      rim: { color: "#fcd9bd", strength: 1 }, arcs: { colors: ["#c2410c", "#be185d"] },
+      globe: { fill: "#ffffff", fillOpacity: 0.96 }, background: "#fff5ec",
+    },
+    dark: {
+      colors: ["#f97316", "#ec4899", "#fde047"], dots: { highlight: 0.35, farSide: 0.4 },
       rim: { color: "#7c2d12", strength: 0.7 }, arcs: { colors: ["#fde047", "#fb7185"] },
       globe: { fill: "#20121a", fillOpacity: 0.92 }, background: "#1a0f14",
     },
@@ -43,27 +89,35 @@ const PRESETS: Preset[] = [
   {
     name: "Ice",
     swatch: ["#94a3b8", "#60a5fa", "#e0f2fe"],
-    options: {
-      colors: ["#94a3b8", "#60a5fa", "#e0f2fe"], gradientAngle: 200,
-      dots: { highlight: 0.5, intensity: 1.2, size: 1.3, density: 0.8 },
+    atmo: { light: "#93c5fd", dark: "#7dd3fc" },
+    shared: { gradientAngle: 200, dots: { size: 1.3, density: 0.8 } },
+    light: {
+      colors: ["#94a3b8", "#60a5fa", "#e0f2fe"], dots: { highlight: 0.5, intensity: 1.2 },
       rim: { color: "#dbeafe" }, arcs: { colors: ["#38bdf8", "#818cf8"] }, globe: { fill: "#f8fbff" }, background: "#eef5fc",
+    },
+    dark: {
+      colors: ["#7dd3fc", "#38bdf8", "#e0f2fe"], dots: { highlight: 0.5, intensity: 1.15, farSide: 0.4 },
+      rim: { color: "#1e4a7a", strength: 0.8 }, arcs: { colors: ["#7dd3fc", "#a5b4fc"] },
+      globe: { fill: "#0a1b2e", fillOpacity: 0.92 }, background: "#06101c",
     },
   },
   {
     name: "Ink",
     swatch: ["#f6f3ec", "#b8b4ae", "#8a8a8a"],
-    options: {
-      colors: ["#f6f3ec", "#b8b4ae", "#8a8a8a"], gradientAngle: 300,
-      dots: { intensity: 1.1, density: 0.6, highlight: 0.6, twinkle: 0.25 },
-      particles: { amount: 0.35, opacity: 0.5 }, rim: { color: "#3a3a3a", strength: 0.6 },
-      globe: { fill: "#121212", fillOpacity: 1 }, arcs: { colors: ["#8a8a8a", "#f6f3ec"], opacity: 0.9 },
-      background: "#0a0a0b",
+    atmo: { light: "#8a8a8a", dark: "#b8b4ae" },
+    shared: { gradientAngle: 300, particles: { amount: 0.35, opacity: 0.5 } },
+    light: {
+      colors: ["#161616", "#4a4a4a", "#8a8a8a"], dots: { intensity: 1, density: 0.6, highlight: 0.6, twinkle: 0.2 },
+      rim: { color: "#dedad1", strength: 1 }, globe: { fill: "#fbfaf6", fillOpacity: 1 },
+      arcs: { colors: ["#7a7a7a", "#111111"], opacity: 0.9 }, background: "#f3f0e8",
+    },
+    dark: {
+      colors: ["#f6f3ec", "#b8b4ae", "#8a8a8a"], dots: { intensity: 1.1, density: 0.6, highlight: 0.6, twinkle: 0.25 },
+      rim: { color: "#3a3a3a", strength: 0.6 }, globe: { fill: "#121212", fillOpacity: 1 },
+      arcs: { colors: ["#8a8a8a", "#f6f3ec"], opacity: 0.9 }, background: "#0a0a0b",
     },
   },
 ]
-const ATMO_COLOUR: Record<string, string> = {
-  Stripe: "#9e94ff", Midnight: "#3b82f6", Emerald: "#4cc283", Mono: "#9ca3af", Sunset: "#f97316", Ice: "#93c5fd", Ink: "#b8b4ae",
-}
 
 // ---------- control map ----------
 type Group = "particles" | "atmosphere" | "arcs"
@@ -160,7 +214,26 @@ function merge(base: any, patch: any): any {
   for (const k in patch) out[k] = isObj(out[k]) && isObj(patch[k]) ? merge(out[k], patch[k]) : clone(patch[k])
   return out
 }
-const resolve = (preset: Preset): GlobeOptions => merge(DEFAULT_OPTIONS, preset.options)
+let theme: Theme = "light"
+const resolve = (preset: Preset, t: Theme = theme): GlobeOptions => merge(merge(DEFAULT_OPTIONS, preset.shared ?? {}), preset[t])
+/** Drop every colour from an edits object (the shape `diff` returns). True if anything was dropped. */
+function stripColours(e: any): boolean {
+  let hit = false
+  const del = (o: any, k: string) => {
+    if (isObj(o) && k in o) {
+      delete o[k]
+      hit = true
+    }
+  }
+  del(e, "colors")
+  del(e, "background")
+  for (const [g, k] of [["rim", "color"], ["arcs", "colors"], ["globe", "fill"], ["atmosphere", "color"]] as const) {
+    if (!isObj(e[g])) continue
+    del(e[g], k)
+    if (!Object.keys(e[g]).length) delete e[g]
+  }
+  return hit
+}
 /** Only what differs from `def`, for the copied snippet and the share link. */
 function diff(cur: any, def: any): any {
   if (!isObj(cur) || !isObj(def)) return same(cur, def) ? undefined : cur
@@ -218,19 +291,28 @@ function parseColour(raw: string): string | null {
 
 // ---------- state ----------
 let presetName = "Stripe"
+const docEl = document.documentElement
+const systemDark = matchMedia("(prefers-color-scheme: dark)")
+const isDark = () => (docEl.dataset.theme ? docEl.dataset.theme === "dark" : systemDark.matches)
+let saved: any = {}
+try {
+  const h = decodeURIComponent(location.hash.slice(1))
+  if (h) saved = JSON.parse(b64.dec(h)) ?? {}
+} catch {
+  /* ignore a bad link */
+}
+// A theme carried by a share link wins for this visit but is not saved as the visitor's choice.
+if (saved.theme === "light" || saved.theme === "dark") docEl.dataset.theme = saved.theme
+theme = isDark() ? "dark" : "light"
 let base: GlobeOptions = resolve(PRESETS[0])
 let state: GlobeOptions = clone(base)
 const groupMemory: Partial<Record<Group, any>> = {}
 const presetOf = (name: string) => PRESETS.find((p) => p.name === name) ?? PRESETS[0]
 
 try {
-  const h = decodeURIComponent(location.hash.slice(1))
-  if (h) {
-    const saved = JSON.parse(b64.dec(h))
-    presetName = presetOf(saved.preset ?? presetName).name
-    base = resolve(presetOf(presetName))
-    state = merge(base, saved.options ?? {})
-  }
+  presetName = presetOf(saved.preset ?? presetName).name
+  base = resolve(presetOf(presetName))
+  state = merge(base, saved.options ?? {})
 } catch {
   /* ignore a bad link */
 }
@@ -240,7 +322,7 @@ const globe = createParticleGlobe(stage, { ...state, flatTransition: 1200 })
 if (!globe) stage.insertAdjacentHTML("beforeend", '<p class="err">This browser has no WebGL, so the globe can\'t draw here.</p>')
 const push = (input: GlobeInput) => globe?.update(input)
 
-const groupFallback = (g: Group): any => (g === "atmosphere" ? { color: ATMO_COLOUR[presetName] ?? "#9e94ff", strength: 0.2, size: 1.12 } : clone(DEFAULT_OPTIONS[g]))
+const groupFallback = (g: Group): any => (g === "atmosphere" ? { color: presetOf(presetName).atmo[theme], strength: 0.2, size: 1.12 } : clone(DEFAULT_OPTIONS[g]))
 /** The value a control returns to: the preset's, or the library default for a group the preset leaves off. */
 function baseline(path: string, group?: Group): any {
   const v = get(base, path)
@@ -578,7 +660,7 @@ for (const sec of SECTIONS) {
     box.addEventListener("change", () => {
       const cur = state[g]
       if (box.checked && !cur) {
-        ;(state as any)[g] = clone(groupMemory[g] ?? (isObj(base[g]) ? base[g] : groupFallback(g)))
+        ;(state as any)[g] = groupMemory[g] ? merge(isObj(base[g]) ? base[g] : groupFallback(g), groupMemory[g]) : clone(isObj(base[g]) ? base[g] : groupFallback(g))
       } else if (!box.checked && cur) {
         groupMemory[g] = clone(cur)
         ;(state as any)[g] = false
@@ -644,13 +726,15 @@ for (const sec of SECTIONS) {
 
 // ---------- refresh, presets, share state ----------
 const editedPill = document.getElementById("modified")!
+const hintEl = document.querySelector<HTMLElement>(".hint")!
 function refresh() {
   sync.forEach((f) => f())
   document.querySelectorAll<HTMLButtonElement>(".preset").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.name === presetName)))
   centreBox.hidden = !state.flat
+  hintEl.hidden = !!state.flat
   const ref = { ...base, flat: state.flat, flatCentre: state.flatCentre }
   editedPill.hidden = diff(state, ref) === undefined
-  history.replaceState(null, "", `#${encodeURIComponent(b64.enc(JSON.stringify({ preset: presetName, options: diff(state, base) ?? {} })))}`)
+  history.replaceState(null, "", `#${encodeURIComponent(b64.enc(JSON.stringify({ preset: presetName, theme, options: diff(state, base) ?? {} })))}`)
 }
 
 function loadPreset(name: string) {
@@ -679,27 +763,49 @@ const copy = (text: string, done: string) =>
   )
 
 const themeBtn = document.getElementById("theme")!
-const isDark = () => {
-  const t = document.documentElement.dataset.theme
-  return t ? t === "dark" : matchMedia("(prefers-color-scheme: dark)").matches
-}
 const paintTheme = () => {
   themeBtn.innerHTML = isDark() ? SUN : MOON
   const label = isDark() ? "Switch to light theme" : "Switch to dark theme"
   themeBtn.title = label
   themeBtn.setAttribute("aria-label", label)
 }
+/** Re-skin the globe for the current theme. Non-colour edits (projection, centre, routes, tweaks) carry over; edited colours reset. */
+function retheme() {
+  paintTheme()
+  const next: Theme = isDark() ? "dark" : "light"
+  if (next === theme) return
+  const edits = diff(state, base) ?? {}
+  const hadColours = stripColours(edits)
+  theme = next
+  base = resolve(presetOf(presetName))
+  state = merge(base, edits)
+  if (isObj(state.atmosphere) && !(state.atmosphere as any).color) state.atmosphere = merge(groupFallback("atmosphere"), state.atmosphere)
+  for (const g of Object.keys(groupMemory) as Group[]) {
+    const m = groupMemory[g]
+    if (isObj(m)) {
+      delete m.colors
+      delete m.color
+    }
+  }
+  push(state)
+  refresh()
+  if (hadColours) flash(`Colours reset to the ${theme} look`)
+}
 themeBtn.addEventListener("click", () => {
   const next = isDark() ? "light" : "dark"
-  document.documentElement.dataset.theme = next
+  docEl.dataset.theme = next
   try {
     localStorage.setItem("pg-theme", next)
   } catch {
     /* private mode */
   }
-  paintTheme()
+  retheme()
 })
-matchMedia("(prefers-color-scheme: dark)").addEventListener("change", paintTheme)
+// With no saved or shared choice the page follows the system setting, live.
+systemDark.addEventListener("change", () => {
+  if (!docEl.dataset.theme) retheme()
+  else paintTheme()
+})
 paintTheme()
 
 document.getElementById("copy-install")!.addEventListener("click", () => copy("npm i particle-globe", "Install command copied"))
