@@ -76,9 +76,10 @@ Pass any subset. Groups (`dots`, `rotation`, `rim`, `globe`, `particles`, `atmos
 | `rotation.auto` | `boolean` | `true` | |
 | `rotation.speed` | `number` | `0.035` | Radians per second |
 | `rotation.direction` | `1 or -1` | `1` | 1 spins left to right |
-| `rotation.startLongitude` | `number` | `-55` | -180 to 180. Also the centre of the flat map |
+| `rotation.startLongitude` | `number` | `-55` | -180 to 180. Longitude facing the viewer on the globe |
 | `rotation.tilt` | `number` | `0.32` | -1 to 1 |
 | `flat` | `number` | `0` | 0 is the globe, 1 is a flat Mercator map, between morphs |
+| `flatCentre` | `number` | `10` | -180 to 180. Longitude at the centre of the flat map; the map wraps at the opposite side |
 | `flatTransition` | `number` | `1200` | Milliseconds a change to `flat` animates. 0 jumps |
 | `draggable` | `boolean` | `true` | Drag to spin |
 | `pauseOffscreen` | `boolean` | `true` | Pause rendering while off screen |

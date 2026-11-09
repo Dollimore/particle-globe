@@ -544,6 +544,8 @@ for (const p of PRESETS) {
   presetsEl.appendChild(b)
 }
 document.getElementById("projection")!.appendChild(segControl(PROJECTION))
+const centreBox = document.getElementById("map-centre")!
+centreBox.appendChild(rangeRow(num("flatCentre", "Map centre", -180, 180, 1, "°")))
 
 const sectionsEl = document.getElementById("sections")!
 const setOpen = (collapse: HTMLElement, btn: HTMLElement, open: boolean) => {
@@ -645,16 +647,17 @@ const editedPill = document.getElementById("modified")!
 function refresh() {
   sync.forEach((f) => f())
   document.querySelectorAll<HTMLButtonElement>(".preset").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.name === presetName)))
-  const ref = { ...base, flat: state.flat }
+  centreBox.hidden = !state.flat
+  const ref = { ...base, flat: state.flat, flatCentre: state.flatCentre }
   editedPill.hidden = diff(state, ref) === undefined
   history.replaceState(null, "", `#${encodeURIComponent(b64.enc(JSON.stringify({ preset: presetName, options: diff(state, base) ?? {} })))}`)
 }
 
 function loadPreset(name: string) {
   presetName = name
-  const flat = state.flat
+  const { flat, flatCentre } = state
   base = resolve(presetOf(name))
-  state = { ...clone(base), flat }
+  state = { ...clone(base), flat, flatCentre }
   for (const k of Object.keys(groupMemory)) delete groupMemory[k as Group]
   push(state)
   refresh()

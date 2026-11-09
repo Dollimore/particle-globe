@@ -100,13 +100,15 @@ export interface GlobeOptions {
     speed: number
     /** 1 spins left to right, -1 right to left. */
     direction: 1 | -1
-    /** Longitude facing the viewer (and the centre of the flat map), -180 to 180. */
+    /** Longitude facing the viewer on the globe, -180 to 180. */
     startLongitude: number
     /** View from above (positive) or below (negative), -1 to 1. */
     tilt: number
   }
   /** 0 is the globe, 1 is a flat Mercator map; anything between morphs. */
   flat: number
+  /** Longitude at the centre of the flat map, -180 to 180. The map wraps at the opposite side. */
+  flatCentre: number
   /** How long a change to `flat` animates, in milliseconds. 0 jumps. */
   flatTransition: number
   /** Drag to spin. */
@@ -192,6 +194,7 @@ export const DEFAULT_OPTIONS: GlobeOptions = {
   },
   rotation: { auto: true, speed: 0.035, direction: 1, startLongitude: -55, tilt: 0.32 },
   flat: 0,
+  flatCentre: 10,
   flatTransition: 1200,
   draggable: true,
   pauseOffscreen: true,
@@ -419,12 +422,13 @@ const FLOAT_VERT =
   }`
 const ARC_VERT = `
   attribute vec3 position; attribute vec3 aFlat; attribute float aT;
-  uniform mat4 modelViewMatrix, projectionMatrix, viewMatrix; uniform float uMorph;
-  varying float vT;
-  void main(){ vT = aT; vec4 mv = mix(modelViewMatrix*vec4(position,1.0), viewMatrix*vec4(aFlat,1.0), uMorph); gl_Position = projectionMatrix*mv; }`
+  uniform mat4 modelViewMatrix, projectionMatrix, viewMatrix; uniform float uMorph, uShift;
+  varying float vT, vX;
+  void main(){ vT = aT; vX = aFlat.x + uShift; vec4 mv = mix(modelViewMatrix*vec4(position,1.0), viewMatrix*vec4(vX,aFlat.yz,1.0), uMorph); gl_Position = projectionMatrix*mv; }`
 const ARC_FRAG =
-  PREC + `uniform vec3 uA; uniform vec3 uB; uniform float uOp, uStart, uEnd, uFeather; varying float vT;
+  PREC + `uniform vec3 uA; uniform vec3 uB; uniform float uOp, uStart, uEnd, uFeather, uMorph, uEdge; varying float vT, vX;
   void main(){ float a = smoothstep(uStart - uFeather, uStart, vT) * (1.0 - smoothstep(uEnd, uEnd + uFeather, vT));
+    a *= mix(1.0, 1.0 - smoothstep(uEdge - 0.012, uEdge, abs(vX)), uMorph);
     if (a < 0.004) discard; gl_FragColor = vec4(mix(uA, uB, vT), uOp * a); }`
 const RING_VERT =
   `
@@ -700,7 +704,7 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
   const tubeIdxBuf = buffer(new Uint16Array(tubeIdx), true)
   const tubeTBuf = buffer(tubeT)
 
-  type Arc = { pos: WebGLBuffer; flat: WebGLBuffer; vb: number[]; pill: HTMLDivElement; idx: number }
+  type Arc = { pos: WebGLBuffer; flat: WebGLBuffer; vb: number[]; pill: HTMLDivElement; idx: number; shift: number }
   let arcs: Arc[] = []
   let arcKey = ""
   let ring: { pos: WebGLBuffer; ll: WebGLBuffer; s: WebGLBuffer; o: WebGLBuffer; sArr: Float32Array; oArr: Float32Array; count: number } | null =
@@ -722,12 +726,12 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
   }
   function buildArcs() {
     const cfg = o.arcs
-    const key = cfg ? JSON.stringify([cfg.routes, cfg.thickness, cfg.height, o.rotation.startLongitude]) : ""
+    const key = cfg ? JSON.stringify([cfg.routes, cfg.thickness, cfg.height, o.flatCentre]) : ""
     if (key === arcKey) return
     arcKey = key
     clearArcs()
     if (!cfg) return
-    const centre = o.rotation.startLongitude
+    const centre = o.flatCentre
     const count = cfg.routes.length
     const rPos = new Float32Array(count * 6)
     const rLL = new Float32Array(count * 4)
@@ -746,7 +750,12 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
       const a2 = flatXY(r.from[0], r.from[1], centre)
       let b2 = flatXY(r.to[0], r.to[1], centre)
       const wrapW = 2 * Math.PI * FLAT_K
-      if (Math.abs(b2[0] - a2[0]) > wrapW / 2) b2 = [b2[0] - Math.sign(b2[0] - a2[0]) * wrapW, b2[1]]
+      // An arc over the map's seam leaves one edge and is redrawn entering from the other.
+      let shift = 0
+      if (Math.abs(b2[0] - a2[0]) > wrapW / 2) {
+        shift = Math.sign(b2[0] - a2[0]) * wrapW
+        b2 = [b2[0] - shift, b2[1]]
+      }
       const len = Math.hypot(b2[0] - a2[0], b2[1] - a2[1])
       const up = len * cfg.height * 0.6
       const f0 = [a2[0], a2[1], 0.002]
@@ -761,7 +770,7 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
       pill.className = "pg-pill"
       pill.textContent = r.label ?? ""
       labelLayer.appendChild(pill)
-      return { pos: buffer(new Float32Array(sph)), flat: buffer(new Float32Array(flat)), vb, pill, idx: i }
+      return { pos: buffer(new Float32Array(sph)), flat: buffer(new Float32Array(flat)), vb, pill, idx: i, shift }
     })
     const sArr = new Float32Array(count * 2)
     const oArr = new Float32Array(count * 2)
@@ -888,7 +897,7 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
       set(pr, "normalMatrix", normal3(m))
       set(pr, "viewMatrix", view)
       set(pr, "uMorph", morph)
-      set(pr, "uCentre", o.rotation.startLongitude)
+      set(pr, "uCentre", o.flatCentre)
       set(pr, "uFlatK", FLAT_K)
     }
     const grad = (pr: Prog) => {
@@ -939,7 +948,7 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
       common(pr, mv)
       set(pr, "uA", rgb(o.arcs.colors[0]))
       set(pr, "uB", rgb(o.arcs.colors[1]))
-      set(pr, "uOp", o.arcs.opacity)
+      set(pr, "uEdge", FLAT_W / 2)
       gl!.disable(gl!.CULL_FACE)
       gl!.bindBuffer(gl!.ELEMENT_ARRAY_BUFFER, tubeIdxBuf)
       const indices = SEG * RAD * 6
@@ -961,7 +970,14 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
           set(pr, "uEnd", end * (1 + ARC_FEATHER) - ARC_FEATHER)
           set(pr, "uFeather", ARC_FEATHER)
           bindAttribs(pr, { position: [a.pos, 3], aFlat: [a.flat, 3], aT: [tubeTBuf, 1] })
+          set(pr, "uShift", 0)
+          set(pr, "uOp", o.arcs.opacity)
           gl!.drawElements(gl!.TRIANGLES, indices, gl!.UNSIGNED_SHORT, 0)
+          if (a.shift && morph > 0.001) {
+            set(pr, "uShift", a.shift)
+            set(pr, "uOp", o.arcs.opacity * morph * morph)
+            gl!.drawElements(gl!.TRIANGLES, indices, gl!.UNSIGNED_SHORT, 0)
+          }
         }
         const live = tt < LIFE
         const landed = live && tt >= DRAW * 0.92
