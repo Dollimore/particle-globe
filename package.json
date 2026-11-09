@@ -2,12 +2,24 @@
   "name": "particle-globe",
   "version": "0.1.0",
   "description": "A tiny particle globe for the web: land as glowing dots, floating particles, arcs between places, and a morph to a flat Mercator map. Plain WebGL, no dependencies.",
-  "keywords": ["globe", "webgl", "map", "particles", "mercator", "three-free"],
+  "keywords": [
+    "globe",
+    "webgl",
+    "map",
+    "particles",
+    "mercator",
+    "three-free"
+  ],
   "license": "MIT",
   "author": "Micky Dollimore",
-  "repository": { "type": "git", "url": "git+https://github.com/Dollimore/particle-globe.git" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Dollimore/particle-globe.git"
+  },
   "homepage": "https://dollimore.github.io/particle-globe/",
-  "bugs": { "url": "https://github.com/Dollimore/particle-globe/issues" },
+  "bugs": {
+    "url": "https://github.com/Dollimore/particle-globe/issues"
+  },
   "type": "module",
   "main": "./dist/particle-globe.js",
   "module": "./dist/particle-globe.js",
@@ -19,7 +31,9 @@
     },
     "./package.json": "./package.json"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "sideEffects": false,
   "scripts": {
     "build": "vite build && tsc -p tsconfig.build.json && rm -f dist/land-mask.d.ts",
@@ -29,6 +43,7 @@
     "land": "node scripts/build-land.mjs"
   },
   "devDependencies": {
+    "terser": "^5.51.2",
     "typescript": "6.0.3",
     "vite": "7.3.6"
   }
