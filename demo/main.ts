@@ -1,10 +1,12 @@
+import { demoRoutes, fillCached, peekFill } from "./routes"
 import { createParticleGlobe, DEFAULT_OPTIONS, type ArcRoute, type GlobeInput, type GlobeOptions } from "../src/index"
 
 // ---------- presets ----------
 // Each preset is a designed pair: `shared` holds the character (shape, motion, dot behaviour),
 // `light` and `dark` hold the full look for that theme (stage, dots, rim, globe fill, arcs).
 type Theme = "light" | "dark"
-type Preset = { name: string; swatch: [string, string, string]; shared?: GlobeInput; light: GlobeInput; dark: GlobeInput; atmo: Record<Theme, string> }
+type Swatch = [string, string, string]
+type Preset = { name: string; swatch: Swatch; swatchAlt?: Partial<Record<Theme, Swatch>>; shared?: GlobeInput; light: GlobeInput; dark: GlobeInput; atmo: Record<Theme, string> }
 const PRESETS: Preset[] = [
   {
     name: "Stripe",
@@ -59,6 +61,7 @@ const PRESETS: Preset[] = [
   {
     name: "Mono",
     swatch: ["#111827", "#111827", "#111827"],
+    swatchAlt: { dark: ["#f3f4f6", "#d1d5db", "#9ca3af"] },
     atmo: { light: "#9ca3af", dark: "#9ca3af" },
     light: {
       colors: ["#111827", "#111827", "#111827"], dots: { highlight: 0.65, twinkle: 0.15 },
@@ -104,6 +107,7 @@ const PRESETS: Preset[] = [
   {
     name: "Ink",
     swatch: ["#f6f3ec", "#b8b4ae", "#8a8a8a"],
+    swatchAlt: { light: ["#161616", "#4a4a4a", "#8a8a8a"] },
     atmo: { light: "#8a8a8a", dark: "#b8b4ae" },
     shared: { gradientAngle: 300, particles: { amount: 0.35, opacity: 0.5 } },
     light: {
@@ -129,7 +133,7 @@ type Row = RangeRow | ColorRow | ToggleRow | SegRow
 type ColorSet = { type: "colorset"; fields: Array<{ path: string; label: string }>; bar?: boolean }
 type Routes = { type: "routes"; path: string }
 type Item = Row | ColorSet | Routes
-type Section = { title: string; group?: Group; open?: boolean; items: Item[]; more?: Item[] }
+type Section = { title: string; group?: Group; open?: boolean; globeOnly?: boolean; items: Item[]; more?: Item[] }
 
 const pct = (path: string, label: string, min = 0, max = 1, step = 0.01): RangeRow => ({ type: "range", path, label, min, max, step, unit: "%", scale: 100 })
 const num = (path: string, label: string, min: number, max: number, step: number, unit?: string): RangeRow => ({ type: "range", path, label, min, max, step, unit })
@@ -155,7 +159,7 @@ const SECTIONS: Section[] = [
     more: [num("particles.size", "Size", 0.2, 4, 0.05), num("particles.rise", "Rise height", 0.02, 0.5, 0.01), num("particles.drift", "Upward drift", 0, 0.4, 0.01), num("particles.speed", "Speed", 0.03, 1, 0.01)],
   },
   {
-    title: "Atmosphere", group: "atmosphere",
+    title: "Atmosphere", group: "atmosphere", globeOnly: true,
     items: [{ type: "color", path: "atmosphere.color", label: "Glow colour" }, pct("atmosphere.strength", "Strength")],
     more: [num("atmosphere.size", "Size", 1.02, 1.5, 0.01)],
   },
@@ -176,7 +180,7 @@ const SECTIONS: Section[] = [
     ],
   },
   {
-    title: "Globe body",
+    title: "Globe body", globeOnly: true,
     items: [
       { type: "color", path: "globe.fill", label: "Fill" }, pct("globe.fillOpacity", "Fill opacity"),
       { type: "color", path: "rim.color", label: "Rim" }, pct("rim.strength", "Rim strength"),
@@ -216,7 +220,10 @@ function merge(base: any, patch: any): any {
   return out
 }
 let theme: Theme = "light"
-const resolve = (preset: Preset, t: Theme = theme): GlobeOptions => merge(merge(DEFAULT_OPTIONS, preset.shared ?? {}), preset[t])
+// The library's sample routes cross each other, so the demo starts from a generated set that doesn't.
+const DEMO_ROUTES = demoRoutes()
+const DEMO_DEFAULTS: GlobeOptions = merge(DEFAULT_OPTIONS, { arcs: { routes: DEMO_ROUTES } })
+const resolve = (preset: Preset, t: Theme = theme): GlobeOptions => merge(merge(DEMO_DEFAULTS, preset.shared ?? {}), preset[t])
 /** Drop every colour from an edits object (the shape `diff` returns). True if anything was dropped. */
 function stripColours(e: any): boolean {
   let hit = false
@@ -323,7 +330,7 @@ const globe = createParticleGlobe(stage, { ...state, flatTransition: 1200 })
 if (!globe) stage.insertAdjacentHTML("beforeend", '<p class="err">This browser has no WebGL, so the globe can\'t draw here.</p>')
 const push = (input: GlobeInput) => globe?.update(input)
 
-const groupFallback = (g: Group): any => (g === "atmosphere" ? { color: presetOf(presetName).atmo[theme], strength: 0.2, size: 1.12 } : clone(DEFAULT_OPTIONS[g]))
+const groupFallback = (g: Group): any => (g === "atmosphere" ? { color: presetOf(presetName).atmo[theme], strength: 0.2, size: 1.12 } : clone(DEMO_DEFAULTS[g]))
 /** The value a control returns to: the preset's, or the library default for a group the preset leaves off. */
 function baseline(path: string, group?: Group): any {
   const v = get(base, path)
@@ -771,6 +778,8 @@ function routesEditor(r: Routes, group?: Group): HTMLElement {
   el.className = "routes"
   const id = `c${uid++}`
   el.innerHTML = `<div class="routes-head"><label for="${id}">Routes</label><span><small class="count"></small> <button type="button" class="link-btn">Use preset routes</button></span></div>
+    <div class="routes-count"><input class="slider" type="range" min="1" max="1" step="1" aria-label="Number of routes" aria-describedby="${id}-n"><span class="num"><input type="text" inputmode="numeric" autocomplete="off" spellcheck="false" aria-label="Number of routes value"></span></div>
+    <p class="help" id="${id}-n">More routes are added so none cross, on the globe or the flat map. Fewer removes from the end.</p>
     <textarea id="${id}" spellcheck="false" autocomplete="off" wrap="off" aria-describedby="${id}-h"></textarea>
     <p class="help" id="${id}-h">One per line: <code>lat, lon &gt; lat, lon  label</code>. The label is optional and shows at the destination when Route labels is on.</p>
     <p class="err-line" role="alert" hidden></p>`
@@ -778,6 +787,32 @@ function routesEditor(r: Routes, group?: Group): HTMLElement {
   const err = el.querySelector<HTMLElement>(".err-line")!
   const count = el.querySelector(".count")!
   const useDefault = el.querySelector<HTMLButtonElement>(".link-btn")!
+  const slider = el.querySelector<HTMLInputElement>(".routes-count .slider")!
+  const numBox = el.querySelector<HTMLElement>(".routes-count .num")!
+  const numIn = numBox.querySelector<HTMLInputElement>("input")!
+  let max = 1
+  let fillTimer = 0
+  const setCount = (n: number) => {
+    const have = get(state, r.path) as ArcRoute[] | undefined
+    if (!have) return
+    const want = Math.min(max, Math.max(1, Math.round(n)))
+    if (want === have.length) return
+    commit(r.path, clone(want < have.length ? have.slice(0, want) : have.concat(fillCached(have).slice(0, want - have.length))), group)
+  }
+  slider.addEventListener("input", () => setCount(parseFloat(slider.value)))
+  numIn.addEventListener("change", () => {
+    const n = parseFloat(numIn.value)
+    numBox.classList.toggle("bad", Number.isNaN(n))
+    if (!Number.isNaN(n)) setCount(n)
+    numIn.value = String(((get(state, r.path) as ArcRoute[]) ?? []).length)
+  })
+  numIn.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") numIn.blur()
+    else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      e.preventDefault()
+      setCount(((get(state, r.path) as ArcRoute[]) ?? []).length + (e.key === "ArrowUp" ? 1 : -1))
+    }
+  })
   let timer = 0
   const apply = () => {
     const res = parseRoutes(ta.value)
@@ -805,6 +840,23 @@ function routesEditor(r: Routes, group?: Group): HTMLElement {
     const v = cur(r.path, group) as ArcRoute[] | undefined
     if (!v) return
     count.textContent = `${v.length} route${v.length === 1 ? "" : "s"}`
+    // How many fit is worked out once, off the main path, then follows the slider for free.
+    const known = peekFill(v)
+    if (!known && !fillTimer) {
+      fillTimer = window.setTimeout(() => {
+        fillTimer = 0
+        const now = get(state, r.path) as ArcRoute[] | undefined
+        if (now && !peekFill(now)) {
+          fillCached(now)
+          refresh()
+        }
+      }, 30)
+    }
+    max = Math.max(1, v.length + (known ? known.length : 0))
+    slider.max = String(max)
+    slider.value = String(v.length)
+    slider.style.setProperty("--fill", `${max > 1 ? ((v.length - 1) / (max - 1)) * 100 : 100}%`)
+    if (document.activeElement !== numIn) numIn.value = String(v.length)
     useDefault.hidden = !modified(r.path, group)
     if (document.activeElement !== ta) ta.value = routeLines(v)
   })
@@ -831,13 +883,20 @@ for (const p of PRESETS) {
   b.type = "button"
   b.className = "preset"
   b.dataset.name = p.name
-  b.innerHTML = `<span class="chip" style="background:linear-gradient(135deg,${p.swatch.join(",")})"></span><span>${p.name}</span>`
+  b.innerHTML = `<span class="chip"></span><span>${p.name}</span>`
   b.addEventListener("click", () => {
     loadPreset(p.name)
     presetsEl.scrollTo({ left: b.offsetLeft - 16, behavior: "smooth" })
   })
   presetsEl.appendChild(b)
 }
+/** Preset chips show the look for the current theme, so a dark preset never vanishes into a dark panel. */
+const paintChips = () =>
+  document.querySelectorAll<HTMLElement>(".preset").forEach((b) => {
+    const p = presetOf(b.dataset.name!)
+    b.querySelector<HTMLElement>(".chip")!.style.background = `linear-gradient(135deg,${(p.swatchAlt?.[theme] ?? p.swatch).join(",")})`
+  })
+paintChips()
 document.getElementById("projection")!.appendChild(segControl(PROJECTION))
 const centreBox = document.getElementById("map-centre")!
 centreBox.appendChild(rangeRow(num("flatCentre", "Map centre", -180, 180, 1, "°")))
@@ -914,6 +973,8 @@ for (const sec of SECTIONS) {
     inner.appendChild(more)
   }
 
+  // Atmosphere and globe body fade out completely on the flat map, so their controls step aside. Values are untouched.
+  if (sec.globeOnly) sync.push(() => { root.hidden = !!state.flat })
   const groupDiffers = () => !!g && !!state[g] !== !!base[g]
   sync.push(() => {
     miniReset.hidden = !(groupDiffers() || allPaths.some((p) => modified(p, g)))
@@ -992,6 +1053,7 @@ function retheme() {
   const edits = diff(state, base) ?? {}
   const hadColours = stripColours(edits)
   theme = next
+  paintChips()
   base = resolve(presetOf(presetName))
   state = merge(base, edits)
   if (isObj(state.atmosphere) && !(state.atmosphere as any).color) state.atmosphere = merge(groupFallback("atmosphere"), state.atmosphere)
