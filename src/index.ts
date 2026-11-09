@@ -423,7 +423,9 @@ const ARC_VERT = `
   varying float vT;
   void main(){ vT = aT; vec4 mv = mix(modelViewMatrix*vec4(position,1.0), viewMatrix*vec4(aFlat,1.0), uMorph); gl_Position = projectionMatrix*mv; }`
 const ARC_FRAG =
-  PREC + `uniform vec3 uA; uniform vec3 uB; uniform float uOp; varying float vT; void main(){ gl_FragColor = vec4(mix(uA, uB, vT), uOp); }`
+  PREC + `uniform vec3 uA; uniform vec3 uB; uniform float uOp, uStart, uEnd, uFeather; varying float vT;
+  void main(){ float a = smoothstep(uStart - uFeather, uStart, vT) * (1.0 - smoothstep(uEnd, uEnd + uFeather, vT));
+    if (a < 0.004) discard; gl_FragColor = vec4(mix(uA, uB, vT), uOp * a); }`
 const RING_VERT =
   `
   attribute vec3 position; attribute vec2 aLL; attribute float aS; attribute float aO;
@@ -477,8 +479,8 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
 
   const canvas = document.createElement("canvas")
   canvas.style.cssText = "position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:pan-y"
-  const gl = (canvas.getContext("webgl2", { antialias: false, alpha: true, premultipliedAlpha: true }) ||
-    canvas.getContext("webgl", { antialias: false, alpha: true, premultipliedAlpha: true })) as WebGLRenderingContext | null
+  const gl = (canvas.getContext("webgl2", { antialias: true, alpha: true, premultipliedAlpha: true }) ||
+    canvas.getContext("webgl", { antialias: true, alpha: true, premultipliedAlpha: true })) as WebGLRenderingContext | null
   if (!gl) return null
   const labelLayer = document.createElement("div")
   labelLayer.className = "pg-labels"
@@ -653,6 +655,7 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
   const SEG = 64
   const RAD = 6
   const STEP = 0.7
+  const ARC_FEATHER = 0.05
   const DRAW = 1.6
   const HOLD = 1.4
   const ERASE = 1.2
@@ -697,7 +700,7 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
   const tubeIdxBuf = buffer(new Uint16Array(tubeIdx), true)
   const tubeTBuf = buffer(tubeT)
 
-  type Arc = { pos: WebGLBuffer; flat: WebGLBuffer; vb: number[]; pill: HTMLDivElement; idx: number; offset: number; start: number; end: number }
+  type Arc = { pos: WebGLBuffer; flat: WebGLBuffer; vb: number[]; pill: HTMLDivElement; idx: number }
   let arcs: Arc[] = []
   let arcKey = ""
   let ring: { pos: WebGLBuffer; ll: WebGLBuffer; s: WebGLBuffer; o: WebGLBuffer; sArr: Float32Array; oArr: Float32Array; count: number } | null =
@@ -758,7 +761,7 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
       pill.className = "pg-pill"
       pill.textContent = r.label ?? ""
       labelLayer.appendChild(pill)
-      return { pos: buffer(new Float32Array(sph)), flat: buffer(new Float32Array(flat)), vb, pill, idx: i, offset: i * STEP, start: 0, end: 0 }
+      return { pos: buffer(new Float32Array(sph)), flat: buffer(new Float32Array(flat)), vb, pill, idx: i }
     })
     const sArr = new Float32Array(count * 2)
     const oArr = new Float32Array(count * 2)
@@ -939,10 +942,11 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
       set(pr, "uOp", o.arcs.opacity)
       gl!.disable(gl!.CULL_FACE)
       gl!.bindBuffer(gl!.ELEMENT_ARRAY_BUFFER, tubeIdxBuf)
-      const per = RAD * 6
-      const cycle = arcs.length * STEP
+      const indices = SEG * RAD * 6
+      // The loop must outlast one arc's life, or few routes get cut off mid-fade.
+      const cycle = Math.max(arcs.length * STEP, LIFE + 0.8)
       for (const a of arcs) {
-        const tt = (((arcTime - a.offset) % cycle) + cycle) % cycle
+        const tt = (((arcTime - (a.idx * cycle) / arcs.length) % cycle) + cycle) % cycle
         let start = 0
         let end = 0
         if (tt < DRAW) end = ease(tt / DRAW)
@@ -951,17 +955,19 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
           end = 1
           start = ease((tt - DRAW - HOLD) / ERASE)
         }
-        const s = Math.floor(start * SEG) * per
-        const e = Math.floor(end * SEG) * per
-        if (e > s) {
+        // The reveal happens per pixel in the shader, with soft ends, so it never steps.
+        if (end > 0 && start < 1) {
+          set(pr, "uStart", start * (1 + ARC_FEATHER))
+          set(pr, "uEnd", end * (1 + ARC_FEATHER) - ARC_FEATHER)
+          set(pr, "uFeather", ARC_FEATHER)
           bindAttribs(pr, { position: [a.pos, 3], aFlat: [a.flat, 3], aT: [tubeTBuf, 1] })
-          gl!.drawElements(gl!.TRIANGLES, e - s, gl!.UNSIGNED_SHORT, s * 2)
+          gl!.drawElements(gl!.TRIANGLES, indices, gl!.UNSIGNED_SHORT, 0)
         }
         const live = tt < LIFE
         const landed = live && tt >= DRAW * 0.92
         if (ring) {
           ring.sArr[a.idx * 2] = 0.8
-          ring.oArr[a.idx * 2] = live && start < 0.98 ? Math.min(1, tt / 0.25) * 0.85 : 0
+          ring.oArr[a.idx * 2] = live ? Math.min(1, tt / 0.25) * 0.85 * (1 - Math.min(1, Math.max(0, (start - 0.6) / 0.4))) : 0
           ring.sArr[a.idx * 2 + 1] = landed ? 1 + 0.25 * Math.max(0, 1 - (tt - DRAW * 0.92) / 0.5) : 1
           ring.oArr[a.idx * 2 + 1] = landed ? Math.min(1, (tt - DRAW * 0.92) / 0.25) * (tt > LIFE - 0.3 ? (LIFE - tt) / 0.3 : 1) : 0
         }
