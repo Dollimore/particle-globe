@@ -91,6 +91,8 @@ export interface GlobeOptions {
         speed: number
         /** Rings at each end. */
         rings: boolean
+        /** Size multiplier for the endpoint rings. 1 is the default size. */
+        ringSize: number
         /** Show route labels at the destination. */
         labels: boolean
       }
@@ -190,6 +192,7 @@ export const DEFAULT_OPTIONS: GlobeOptions = {
     height: 0.42,
     speed: 1,
     rings: true,
+    ringSize: 1,
     labels: false,
   },
   rotation: { auto: true, speed: 0.035, direction: 1, startLongitude: -55, tilt: 0.32 },
@@ -1054,7 +1057,7 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
     if (o.arcs && o.arcs.rings && ring) {
       const pr = progs.ring
       common(pr, mv)
-      set(pr, "uPx", px)
+      set(pr, "uPx", px * (o.arcs.ringSize ?? 1))
       set(pr, "uColor", rgb(o.arcs.colors[1]))
       gl!.bindBuffer(gl!.ARRAY_BUFFER, ring.s)
       gl!.bufferSubData(gl!.ARRAY_BUFFER, 0, ring.sArr)

@@ -121,7 +121,7 @@ const PRESETS: Preset[] = [
 
 // ---------- control map ----------
 type Group = "particles" | "atmosphere" | "arcs"
-type RangeRow = { type: "range"; path: string; label: string; min: number; max: number; step: number; unit?: string; scale?: number }
+type RangeRow = { type: "range"; path: string; label: string; min: number; max: number; step: number; unit?: string; scale?: number; showIf?: string }
 type ColorRow = { type: "color"; path: string; label: string }
 type ToggleRow = { type: "toggle"; path: string; label: string }
 type SegRow = { type: "seg"; path: string; label: string; options: Array<[number, string]>; wrap?: boolean }
@@ -170,6 +170,7 @@ const SECTIONS: Section[] = [
       { type: "range", path: "arcs.thickness", label: "Thickness", min: 0.001, max: 0.012, step: 0.0002, scale: 1000 },
       num("arcs.height", "Height", 0.1, 1, 0.01),
       { type: "toggle", path: "arcs.rings", label: "Endpoint rings" },
+      { ...num("arcs.ringSize", "Icon size", 0.4, 3, 0.05, "×"), showIf: "arcs.rings" },
       { type: "toggle", path: "arcs.labels", label: "Route labels" },
       { type: "routes", path: "arcs.routes" },
     ],
@@ -344,6 +345,214 @@ const RESET = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" strok
 const SUN = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1"/></svg>`
 const MOON = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.4 9.6A5.6 5.6 0 0 1 6.4 2.6a5.6 5.6 0 1 0 7 7Z"/></svg>`
 
+// ---------- colour picker ----------
+type HSV = [number, number, number]
+const clamp01 = (n: number) => Math.min(1, Math.max(0, n))
+function hsv2hex([h, s, v]: HSV): string {
+  const f = (n: number) => {
+    const k = (n + h / 60) % 6
+    return v - v * s * Math.max(0, Math.min(k, 4 - k, 1))
+  }
+  return "#" + [f(5), f(3), f(1)].map((x) => Math.round(x * 255).toString(16).padStart(2, "0")).join("")
+}
+function hex2hsv(hex: string): HSV {
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/.exec(hex)
+  if (!m) return [0, 0, 1]
+  const [r, g, b] = [m[1], m[2], m[3]].map((x) => parseInt(x, 16) / 255)
+  const max = Math.max(r, g, b)
+  const d = max - Math.min(r, g, b)
+  let h = 0
+  if (d) h = max === r ? ((g - b) / d + 6) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4
+  return [h * 60, max ? d / max : 0, max]
+}
+const EYE = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m10.2 2.8 3 3M11.6 4.2 5 10.8l-.6 2.2-1.4.4.4-1.4 2.2-.6 6.6-6.6a1.4 1.4 0 0 0 0-2l-.6-.6a1.4 1.4 0 0 0-2 0Z"/></svg>`
+
+const picker = (() => {
+  const el = document.createElement("div")
+  el.className = "picker"
+  el.hidden = true
+  el.setAttribute("role", "dialog")
+  el.setAttribute("aria-label", "Colour picker")
+  el.innerHTML = `<div class="pk-sv" tabindex="0" role="slider" aria-label="Saturation and brightness"><i class="pk-thumb"></i></div>
+    <div class="pk-hue" tabindex="0" role="slider" aria-label="Hue" aria-valuemin="0" aria-valuemax="360"><i class="pk-thumb"></i></div>
+    <div class="pk-row"><input class="pk-hex" type="text" spellcheck="false" autocomplete="off" autocapitalize="off" maxlength="24" aria-label="Hex or CSS colour"><button type="button" class="pk-eye" title="Pick a colour from the screen" aria-label="Pick a colour from the screen" hidden>${EYE}</button></div>
+    <div class="pk-quick" role="group" aria-label="Colours in this preset"></div>`
+  document.body.appendChild(el)
+  const sv = el.querySelector<HTMLElement>(".pk-sv")!
+  const hue = el.querySelector<HTMLElement>(".pk-hue")!
+  const hexIn = el.querySelector<HTMLInputElement>(".pk-hex")!
+  const eye = el.querySelector<HTMLButtonElement>(".pk-eye")!
+  const quick = el.querySelector<HTMLElement>(".pk-quick")!
+  let hsv: HSV = [0, 0, 1]
+  let anchor: HTMLElement | null = null
+  let set: (v: string) => void = () => {}
+
+  const paint = () => {
+    const hex = hsv2hex(hsv)
+    el.style.setProperty("--hue", `hsl(${hsv[0]} 100% 50%)`)
+    el.style.setProperty("--picked", hex)
+    sv.firstElementChild!.setAttribute("style", `left:${hsv[1] * 100}%;top:${(1 - hsv[2]) * 100}%`)
+    hue.firstElementChild!.setAttribute("style", `left:${(hsv[0] / 360) * 100}%`)
+    sv.setAttribute("aria-valuetext", `Saturation ${Math.round(hsv[1] * 100)}%, brightness ${Math.round(hsv[2] * 100)}%`)
+    hue.setAttribute("aria-valuenow", String(Math.round(hsv[0])))
+    if (document.activeElement !== hexIn) hexIn.value = hex
+  }
+  const emit = () => {
+    paint()
+    set(hsv2hex(hsv))
+  }
+  const place = () => {
+    if (!anchor) return
+    const r = anchor.getBoundingClientRect()
+    const w = el.offsetWidth
+    const h = el.offsetHeight
+    const m = 8
+    let top = r.bottom + 6
+    if (top + h > innerHeight - m) top = r.top - h - 6 >= m ? r.top - h - 6 : Math.max(m, innerHeight - h - m)
+    const left = Math.min(Math.max(m, r.right - w), Math.max(m, innerWidth - w - m))
+    el.style.top = `${top}px`
+    el.style.left = `${left}px`
+  }
+  const close = (refocus: boolean) => {
+    if (el.hidden) return
+    el.hidden = true
+    const a = anchor
+    anchor = null
+    if (refocus) a?.focus()
+  }
+  const drag = (node: HTMLElement, move: (x: number, y: number, r: DOMRect) => void) => {
+    const at = (e: PointerEvent) => {
+      const r = node.getBoundingClientRect()
+      move(clamp01((e.clientX - r.left) / r.width), clamp01((e.clientY - r.top) / r.height), r)
+      emit()
+    }
+    node.addEventListener("pointerdown", (e) => {
+      if (e.button) return
+      e.preventDefault()
+      node.focus()
+      node.setPointerCapture(e.pointerId)
+      at(e)
+    })
+    node.addEventListener("pointermove", (e) => {
+      if (node.hasPointerCapture(e.pointerId)) at(e)
+    })
+  }
+  drag(sv, (x, y) => {
+    hsv[1] = x
+    hsv[2] = 1 - y
+  })
+  drag(hue, (x) => {
+    hsv[0] = x * 360
+  })
+  sv.addEventListener("keydown", (e) => {
+    const k = e.shiftKey ? 0.1 : 0.01
+    const d: Record<string, [number, number]> = { ArrowLeft: [-k, 0], ArrowRight: [k, 0], ArrowUp: [0, k], ArrowDown: [0, -k] }
+    if (!d[e.key]) return
+    e.preventDefault()
+    hsv = [hsv[0], clamp01(hsv[1] + d[e.key][0]), clamp01(hsv[2] + d[e.key][1])]
+    emit()
+  })
+  hue.addEventListener("keydown", (e) => {
+    const k = e.shiftKey ? 10 : 1
+    const d: Record<string, number> = { ArrowLeft: -k, ArrowDown: -k, ArrowRight: k, ArrowUp: k }
+    if (d[e.key] === undefined) return
+    e.preventDefault()
+    hsv = [Math.min(360, Math.max(0, hsv[0] + d[e.key])), hsv[1], hsv[2]]
+    emit()
+  })
+  hexIn.addEventListener("input", () => {
+    const c = parseColour(hexIn.value)
+    hexIn.classList.toggle("bad", !c)
+    if (!c) return
+    hsv = hex2hsv(c)
+    paint()
+    set(c)
+  })
+  hexIn.addEventListener("blur", () => {
+    hexIn.classList.remove("bad")
+    hexIn.value = hsv2hex(hsv)
+  })
+  hexIn.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") hexIn.blur()
+  })
+  const Eye = (window as any).EyeDropper
+  if (Eye) {
+    eye.hidden = false
+    eye.addEventListener("click", () => {
+      new Eye().open().then(
+        (r: { sRGBHex: string }) => {
+          hsv = hex2hsv(r.sRGBHex.toLowerCase())
+          emit()
+        },
+        () => {},
+      )
+    })
+  }
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !el.hidden) {
+      e.preventDefault()
+      close(true)
+    }
+  })
+  document.addEventListener("pointerdown", (e) => {
+    const t = e.target as Node
+    if (!el.hidden && !el.contains(t) && !anchor?.contains(t)) close(false)
+  }, true)
+  el.addEventListener("focusout", (e) => {
+    const n = e.relatedTarget as Node | null
+    if (n && !el.contains(n) && n !== anchor) close(false)
+  })
+  addEventListener("resize", place)
+  document.getElementById("scroll")!.addEventListener("scroll", () => {
+    if (!anchor) return
+    const a = anchor.getBoundingClientRect()
+    const s = document.getElementById("scroll")!.getBoundingClientRect()
+    if (a.bottom < s.top || a.top > s.bottom) close(false)
+    else place()
+  }, { passive: true })
+
+  return {
+    get anchor() { return anchor },
+    open(a: HTMLElement, value: string, onSet: (v: string) => void) {
+      anchor = a
+      set = onSet
+      hsv = hex2hsv(parseColour(value) ?? "#ffffff")
+      const p = resolve(presetOf(presetName))
+      const quickColours = [...p.colors, p.background, p.rim.color, p.globe.fill, ...(p.arcs ? p.arcs.colors : [])]
+        .map((c) => parseColour(c))
+        .filter((c, i, all): c is string => !!c && c !== "transparent" && all.indexOf(c) === i)
+      quick.replaceChildren(...quickColours.map((c) => {
+        const b = document.createElement("button")
+        b.type = "button"
+        b.className = "pk-q"
+        b.style.setProperty("--c", c)
+        b.title = c
+        b.setAttribute("aria-label", `Use ${c}`)
+        b.addEventListener("click", () => {
+          hsv = hex2hsv(c)
+          emit()
+        })
+        return b
+      }))
+      quick.hidden = !quickColours.length
+      el.hidden = false
+      paint()
+      place()
+      sv.focus({ preventScroll: true })
+    },
+    /** The value changed from outside (typed hex, reset, preset): follow it unless it is what the picker just sent. */
+    sync(a: HTMLElement, value: string) {
+      if (a !== anchor || el.hidden) return
+      const c = parseColour(value)
+      if (c && c !== "transparent" && c !== hsv2hex(hsv)) {
+        hsv = hex2hsv(c)
+        paint()
+      }
+    },
+    close,
+  }
+})()
+
 // ---------- controls ----------
 const sync: Array<() => void> = []
 let uid = 0
@@ -394,11 +603,14 @@ function dotReset(path: string, label: string, group?: Group): HTMLButtonElement
 function colourField(path: string, label: string, group?: Group): HTMLElement {
   const wrap = document.createElement("span")
   wrap.className = "cfield"
-  wrap.innerHTML = `<label class="swatch" title="Pick a colour"><i></i><input type="color" aria-label="${label} colour picker"></label><input class="hex" type="text" spellcheck="false" autocomplete="off" autocapitalize="off" maxlength="24" aria-label="${label} colour, hex or CSS colour">`
-  const pick = wrap.querySelector<HTMLInputElement>("input[type=color]")!
+  wrap.innerHTML = `<button type="button" class="swatch" title="Pick a colour" aria-haspopup="dialog" aria-label="${label}: open colour picker"><i></i></button><input class="hex" type="text" spellcheck="false" autocomplete="off" autocapitalize="off" maxlength="24" aria-label="${label} colour, hex or CSS colour">`
+  const pick = wrap.querySelector<HTMLButtonElement>(".swatch")!
   const hex = wrap.querySelector<HTMLInputElement>(".hex")!
   const chip = wrap.querySelector<HTMLElement>("i")!
-  pick.addEventListener("input", () => commit(path, pick.value, group))
+  pick.addEventListener("click", () => {
+    if (picker.anchor === pick) picker.close(false)
+    else picker.open(pick, String(cur(path, group) ?? "#ffffff"), (v) => commit(path, v, group))
+  })
   hex.addEventListener("input", () => {
     const c = parseColour(hex.value)
     wrap.classList.toggle("bad", !c)
@@ -415,7 +627,7 @@ function colourField(path: string, label: string, group?: Group): HTMLElement {
     const v = cur(path, group)
     if (v === undefined) return
     chip.style.setProperty("--c", v)
-    pick.value = /^#[0-9a-f]{6}$/i.test(v) ? v : "#ffffff"
+    picker.sync(pick, v)
     if (document.activeElement !== hex || parseColour(hex.value) !== parseColour(v)) hex.value = v
   })
   return wrap
@@ -470,6 +682,7 @@ function rangeRow(r: RangeRow, group?: Group): HTMLElement {
     box.classList.remove("bad")
   })
   sync.push(() => {
+    if (r.showIf) el.hidden = !cur(r.showIf, group)
     const v = cur(r.path, group)
     if (v === undefined) return
     slider.value = String(v)
@@ -738,6 +951,7 @@ function refresh() {
 }
 
 function loadPreset(name: string) {
+  picker.close(false)
   presetName = name
   const { flat, flatCentre } = state
   base = resolve(presetOf(name))
@@ -774,6 +988,7 @@ function retheme() {
   paintTheme()
   const next: Theme = isDark() ? "dark" : "light"
   if (next === theme) return
+  picker.close(false)
   const edits = diff(state, base) ?? {}
   const hadColours = stripColours(edits)
   theme = next

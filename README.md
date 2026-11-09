@@ -72,6 +72,7 @@ Pass any subset. Groups (`dots`, `rotation`, `rim`, `globe`, `particles`, `atmos
 | `arcs.height` | `number` | `0.42` | 0.1 to 1, relative to distance |
 | `arcs.speed` | `number` | `1` | Speed multiplier |
 | `arcs.rings` | `boolean` | `true` | Rings at each end |
+| `arcs.ringSize` | `number` | `1` | Size multiplier for the endpoint rings |
 | `arcs.labels` | `boolean` | `false` | Show route labels at the destination |
 | `rotation.auto` | `boolean` | `true` | |
 | `rotation.speed` | `number` | `0.035` | Radians per second |
