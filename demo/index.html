@@ -3,41 +3,57 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
     <title>particle-globe: customiser</title>
     <meta name="description" content="A tiny particle globe for the web. Pick a preset, tune it, copy the code." />
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="./style.css" />
+    <script>
+      try {
+        var t = localStorage.getItem("pg-theme")
+        if (t === "light" || t === "dark") document.documentElement.dataset.theme = t
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <header class="top">
       <div class="brand">
         <span class="logo" aria-hidden="true"></span>
         <h1>particle-globe</h1>
-        <span class="meta">~13.5KB gzipped · no dependencies</span>
+        <span class="meta">~13.6KB gzipped, no dependencies</span>
       </div>
-      <nav class="links">
-        <code class="install">npm i particle-globe</code>
-        <a href="https://github.com/Dollimore/particle-globe">GitHub</a>
+      <nav class="links" aria-label="Project">
+        <button id="copy-install" class="install" type="button" title="Copy install command"><code>npm i particle-globe</code></button>
+        <a class="link" href="https://github.com/Dollimore/particle-globe">GitHub</a>
+        <button id="theme" class="icon-btn" type="button" aria-label="Switch colour theme" title="Switch colour theme"></button>
       </nav>
     </header>
 
     <main class="layout">
       <section class="stage-wrap" aria-label="Globe preview">
         <div id="stage" class="stage"></div>
-        <p class="hint">Drag to spin</p>
+        <div class="stage-bar">
+          <p class="hint">Drag to spin</p>
+          <div id="projection" class="stage-seg"></div>
+        </div>
       </section>
 
       <aside class="panel" aria-label="Settings">
-        <div class="panel-block">
-          <p class="panel-label">Presets</p>
-          <div id="presets" class="presets"></div>
+        <div class="panel-scroll" id="scroll">
+          <div class="block">
+            <div class="block-head">
+              <h2 class="block-title">Presets</h2>
+              <span id="modified" class="pill" hidden>Edited</span>
+            </div>
+            <div id="presets" class="presets"></div>
+          </div>
+          <div id="sections"></div>
         </div>
-        <div id="sections"></div>
-        <div class="actions">
-          <button id="copy-code" class="primary" type="button">Copy code</button>
-          <button id="copy-link" type="button">Share</button>
-          <button id="reset" type="button">Reset</button>
-        </div>
+        <footer class="actions">
+          <button id="copy-code" class="btn primary" type="button">Copy code</button>
+          <button id="copy-link" class="btn" type="button">Share link</button>
+          <button id="reset" class="btn ghost" type="button" title="Back to the preset's values">Reset</button>
+        </footer>
       </aside>
     </main>
 

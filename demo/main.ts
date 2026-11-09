@@ -1,13 +1,12 @@
-import { createParticleGlobe, DEFAULT_OPTIONS, type GlobeInput, type GlobeOptions } from "../src/index"
+import { createParticleGlobe, DEFAULT_OPTIONS, type ArcRoute, type GlobeInput, type GlobeOptions } from "../src/index"
 
 // ---------- presets ----------
-type Preset = { name: string; swatch: [string, string, string]; page: "light" | "dark"; options: GlobeInput }
+type Preset = { name: string; swatch: [string, string, string]; options: GlobeInput }
 const PRESETS: Preset[] = [
-  { name: "Stripe", swatch: ["#6b54f5", "#db61db", "#eb4d54"], page: "light", options: { background: "#ffffff" } },
+  { name: "Stripe", swatch: ["#6b54f5", "#db61db", "#eb4d54"], options: { background: "#ffffff" } },
   {
     name: "Midnight",
     swatch: ["#3b82f6", "#22d3ee", "#a78bfa"],
-    page: "dark",
     options: {
       colors: ["#3b82f6", "#22d3ee", "#a78bfa"], gradientAngle: 90,
       dots: { highlight: 0.4, intensity: 1.1, farSide: 0.45 },
@@ -19,7 +18,6 @@ const PRESETS: Preset[] = [
   {
     name: "Emerald",
     swatch: ["#0f5132", "#1d7a49", "#4cc283"],
-    page: "light",
     options: {
       colors: ["#0f5132", "#1d7a49", "#4cc283"], gradientAngle: 70, dots: { highlight: 0.6 },
       rim: { color: "#dcefe3" }, arcs: { colors: ["#1d7a49", "#a3e635"] }, background: "#f4f6f2",
@@ -28,7 +26,6 @@ const PRESETS: Preset[] = [
   {
     name: "Mono",
     swatch: ["#111827", "#111827", "#111827"],
-    page: "light",
     options: {
       colors: ["#111827", "#111827", "#111827"], dots: { highlight: 0.65, twinkle: 0.15 },
       rim: { color: "#f1f2f4" }, arcs: { colors: ["#111827", "#111827"], opacity: 0.85 }, background: "#ffffff",
@@ -37,7 +34,6 @@ const PRESETS: Preset[] = [
   {
     name: "Sunset",
     swatch: ["#f97316", "#ec4899", "#fde047"],
-    page: "dark",
     options: {
       colors: ["#f97316", "#ec4899", "#fde047"], gradientAngle: 120, dots: { highlight: 0.35, farSide: 0.4 },
       rim: { color: "#7c2d12", strength: 0.7 }, arcs: { colors: ["#fde047", "#fb7185"] },
@@ -47,7 +43,6 @@ const PRESETS: Preset[] = [
   {
     name: "Ice",
     swatch: ["#94a3b8", "#60a5fa", "#e0f2fe"],
-    page: "light",
     options: {
       colors: ["#94a3b8", "#60a5fa", "#e0f2fe"], gradientAngle: 200,
       dots: { highlight: 0.5, intensity: 1.2, size: 1.3, density: 0.8 },
@@ -57,7 +52,6 @@ const PRESETS: Preset[] = [
   {
     name: "Ink",
     swatch: ["#f6f3ec", "#b8b4ae", "#8a8a8a"],
-    page: "dark",
     options: {
       colors: ["#f6f3ec", "#b8b4ae", "#8a8a8a"], gradientAngle: 300,
       dots: { intensity: 1.1, density: 0.6, highlight: 0.6, twinkle: 0.25 },
@@ -71,74 +65,85 @@ const ATMO_COLOUR: Record<string, string> = {
   Stripe: "#9e94ff", Midnight: "#3b82f6", Emerald: "#4cc283", Mono: "#9ca3af", Sunset: "#f97316", Ice: "#93c5fd", Ink: "#b8b4ae",
 }
 
-// ---------- controls ----------
-type Row =
-  | { path: string; type: "range"; label: string; min: number; max: number; step: number; unit?: string; pct?: boolean }
-  | { path: string; type: "color"; label: string }
-  | { path: string; type: "toggle"; label: string }
-  | { path: string; type: "seg"; label: string; options: Array<[number, string]> }
-type Section = { title: string; group?: "particles" | "atmosphere" | "arcs"; open?: boolean; rows: Row[] }
+// ---------- control map ----------
+type Group = "particles" | "atmosphere" | "arcs"
+type RangeRow = { type: "range"; path: string; label: string; min: number; max: number; step: number; unit?: string; scale?: number }
+type ColorRow = { type: "color"; path: string; label: string }
+type ToggleRow = { type: "toggle"; path: string; label: string }
+type SegRow = { type: "seg"; path: string; label: string; options: Array<[number, string]>; wrap?: boolean }
+type Row = RangeRow | ColorRow | ToggleRow | SegRow
+type ColorSet = { type: "colorset"; fields: Array<{ path: string; label: string }>; bar?: boolean }
+type Routes = { type: "routes"; path: string }
+type Item = Row | ColorSet | Routes
+type Section = { title: string; group?: Group; open?: boolean; items: Item[]; more?: Item[] }
+
+const pct = (path: string, label: string, min = 0, max = 1, step = 0.01): RangeRow => ({ type: "range", path, label, min, max, step, unit: "%", scale: 100 })
+const num = (path: string, label: string, min: number, max: number, step: number, unit?: string): RangeRow => ({ type: "range", path, label, min, max, step, unit })
 
 const SECTIONS: Section[] = [
-  { title: "View", open: true, rows: [
-    { path: "flat", type: "seg", label: "Projection", options: [[0, "Globe"], [1, "Flat map"]] },
-    { path: "background", type: "color", label: "Background" },
-  ] },
-  { title: "Colours", open: true, rows: [
-    { path: "colors.0", type: "color", label: "Start" },
-    { path: "colors.1", type: "color", label: "Middle" },
-    { path: "colors.2", type: "color", label: "End" },
-    { path: "gradientAngle", type: "range", label: "Direction", min: 0, max: 360, step: 1, unit: "°" },
-    { path: "gradientMid", type: "range", label: "Middle position", min: 0.1, max: 0.9, step: 0.01 },
-  ] },
-  { title: "Dots", open: true, rows: [
-    { path: "dots.density", type: "range", label: "Density", min: 0.05, max: 1, step: 0.01, pct: true },
-    { path: "dots.size", type: "range", label: "Size", min: 0.2, max: 4, step: 0.05 },
-    { path: "dots.sizeVariation", type: "range", label: "Size variation", min: 0, max: 2.5, step: 0.05 },
-    { path: "dots.intensity", type: "range", label: "Brightness", min: 0, max: 2, step: 0.01 },
-    { path: "dots.twinkle", type: "range", label: "Twinkle", min: 0, max: 1, step: 0.01, pct: true },
-    { path: "dots.highlight", type: "range", label: "Highlight fade", min: 0, max: 1, step: 0.01, pct: true },
-    { path: "dots.farSide", type: "range", label: "Far side", min: 0, max: 1, step: 0.01, pct: true },
-  ] },
-  { title: "Particles", group: "particles", rows: [
-    { path: "particles.amount", type: "range", label: "Amount", min: 0.02, max: 1, step: 0.01, pct: true },
-    { path: "particles.size", type: "range", label: "Size", min: 0.2, max: 4, step: 0.05 },
-    { path: "particles.rise", type: "range", label: "Rise height", min: 0.02, max: 0.5, step: 0.01 },
-    { path: "particles.drift", type: "range", label: "Upward drift", min: 0, max: 0.4, step: 0.01 },
-    { path: "particles.speed", type: "range", label: "Speed", min: 0.03, max: 1, step: 0.01 },
-    { path: "particles.opacity", type: "range", label: "Opacity", min: 0, max: 1, step: 0.01, pct: true },
-  ] },
-  { title: "Atmosphere", group: "atmosphere", rows: [
-    { path: "atmosphere.color", type: "color", label: "Glow colour" },
-    { path: "atmosphere.strength", type: "range", label: "Strength", min: 0, max: 1, step: 0.01, pct: true },
-    { path: "atmosphere.size", type: "range", label: "Size", min: 1.02, max: 1.5, step: 0.01 },
-  ] },
-  { title: "Arcs", group: "arcs", rows: [
-    { path: "arcs.colors.0", type: "color", label: "Start colour" },
-    { path: "arcs.colors.1", type: "color", label: "End colour" },
-    { path: "arcs.opacity", type: "range", label: "Opacity", min: 0.1, max: 1, step: 0.01, pct: true },
-    { path: "arcs.thickness", type: "range", label: "Thickness", min: 0.001, max: 0.012, step: 0.0002 },
-    { path: "arcs.height", type: "range", label: "Height", min: 0.1, max: 1, step: 0.01 },
-    { path: "arcs.speed", type: "range", label: "Speed", min: 0.2, max: 3, step: 0.05, unit: "×" },
-    { path: "arcs.rings", type: "toggle", label: "Endpoint rings" },
-  ] },
-  { title: "Globe body", rows: [
-    { path: "globe.fill", type: "color", label: "Fill" },
-    { path: "globe.fillOpacity", type: "range", label: "Fill opacity", min: 0, max: 1, step: 0.01, pct: true },
-    { path: "rim.color", type: "color", label: "Rim colour" },
-    { path: "rim.strength", type: "range", label: "Rim strength", min: 0, max: 1, step: 0.01, pct: true },
-  ] },
-  { title: "Motion", rows: [
-    { path: "rotation.auto", type: "toggle", label: "Auto-rotate" },
-    { path: "rotation.direction", type: "seg", label: "Direction", options: [[1, "Left to right"], [-1, "Right to left"]] },
-    { path: "rotation.speed", type: "range", label: "Speed", min: 0, max: 0.3, step: 0.005 },
-    { path: "rotation.startLongitude", type: "seg", label: "Start over", options: [[-55, "Americas"], [15, "Europe & Africa"], [80, "Asia"], [140, "Oceania"]] },
-    { path: "rotation.startLongitude", type: "range", label: "Start longitude", min: -180, max: 180, step: 1, unit: "°" },
-    { path: "rotation.tilt", type: "range", label: "Tilt", min: -1, max: 1, step: 0.01 },
-  ] },
+  {
+    title: "Colours", open: true,
+    items: [
+      { type: "colorset", bar: true, fields: [{ path: "colors.0", label: "Start colour" }, { path: "colors.1", label: "Middle colour" }, { path: "colors.2", label: "End colour" }] },
+      num("gradientAngle", "Angle", 0, 360, 1, "°"),
+      { type: "color", path: "background", label: "Background" },
+    ],
+    more: [num("gradientMid", "Middle stop", 0.1, 0.9, 0.01)],
+  },
+  {
+    title: "Dots", open: true,
+    items: [pct("dots.density", "Density", 0.05), num("dots.size", "Size", 0.2, 4, 0.05), num("dots.intensity", "Brightness", 0, 2, 0.01)],
+    more: [num("dots.sizeVariation", "Size variation", 0, 2.5, 0.05), pct("dots.twinkle", "Twinkle"), pct("dots.highlight", "Highlight fade"), pct("dots.farSide", "Far side")],
+  },
+  {
+    title: "Particles", group: "particles",
+    items: [pct("particles.amount", "Amount", 0.02), pct("particles.opacity", "Opacity")],
+    more: [num("particles.size", "Size", 0.2, 4, 0.05), num("particles.rise", "Rise height", 0.02, 0.5, 0.01), num("particles.drift", "Upward drift", 0, 0.4, 0.01), num("particles.speed", "Speed", 0.03, 1, 0.01)],
+  },
+  {
+    title: "Atmosphere", group: "atmosphere",
+    items: [{ type: "color", path: "atmosphere.color", label: "Glow colour" }, pct("atmosphere.strength", "Strength")],
+    more: [num("atmosphere.size", "Size", 1.02, 1.5, 0.01)],
+  },
+  {
+    title: "Arcs", group: "arcs",
+    items: [
+      { type: "colorset", fields: [{ path: "arcs.colors.0", label: "Start colour" }, { path: "arcs.colors.1", label: "End colour" }] },
+      pct("arcs.opacity", "Opacity", 0.1),
+      num("arcs.speed", "Speed", 0.2, 3, 0.05, "×"),
+    ],
+    more: [
+      { type: "range", path: "arcs.thickness", label: "Thickness", min: 0.001, max: 0.012, step: 0.0002, scale: 1000 },
+      num("arcs.height", "Height", 0.1, 1, 0.01),
+      { type: "toggle", path: "arcs.rings", label: "Endpoint rings" },
+      { type: "toggle", path: "arcs.labels", label: "Route labels" },
+      { type: "routes", path: "arcs.routes" },
+    ],
+  },
+  {
+    title: "Globe body",
+    items: [
+      { type: "color", path: "globe.fill", label: "Fill" }, pct("globe.fillOpacity", "Fill opacity"),
+      { type: "color", path: "rim.color", label: "Rim" }, pct("rim.strength", "Rim strength"),
+    ],
+  },
+  {
+    title: "Motion",
+    items: [
+      { type: "toggle", path: "rotation.auto", label: "Auto-rotate" },
+      num("rotation.speed", "Speed", 0, 0.3, 0.005),
+      { type: "seg", path: "rotation.startLongitude", label: "Start over", wrap: true, options: [[-55, "Americas"], [15, "Europe, Africa"], [80, "Asia"], [140, "Oceania"]] },
+    ],
+    more: [
+      { type: "seg", path: "rotation.direction", label: "Direction", options: [[1, "Left to right"], [-1, "Right to left"]], wrap: true },
+      num("rotation.startLongitude", "Longitude", -180, 180, 1, "°"),
+      num("rotation.tilt", "Tilt", -1, 1, 0.01),
+    ],
+  },
 ]
+const PROJECTION: SegRow = { type: "seg", path: "flat", label: "Projection", options: [[0, "Globe"], [1, "Flat map"]] }
 
-// ---------- option helpers ----------
+// ---------- helpers ----------
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v))
 const get = (obj: any, path: string) => path.split(".").reduce((o, k) => (o == null ? o : o[k]), obj)
 function setPath(obj: any, path: string, value: unknown) {
@@ -147,59 +152,384 @@ function setPath(obj: any, path: string, value: unknown) {
   for (let i = 0; i < keys.length - 1; i++) o = o[keys[i]]
   o[keys[keys.length - 1]] = value
 }
-function resolve(preset: Preset): GlobeOptions {
-  const base = clone(DEFAULT_OPTIONS) as any
-  const p = preset.options as any
-  for (const k in p) {
-    if (p[k] && typeof p[k] === "object" && !Array.isArray(p[k]) && base[k]) base[k] = { ...base[k], ...p[k] }
-    else base[k] = p[k]
-  }
-  return base
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
+const isObj = (v: unknown): v is Record<string, any> => !!v && typeof v === "object" && !Array.isArray(v)
+function merge(base: any, patch: any): any {
+  if (!isObj(base) || !isObj(patch)) return clone(patch)
+  const out: any = clone(base)
+  for (const k in patch) out[k] = isObj(out[k]) && isObj(patch[k]) ? merge(out[k], patch[k]) : clone(patch[k])
+  return out
 }
-/** Only what differs from the library defaults, for the copied snippet. */
+const resolve = (preset: Preset): GlobeOptions => merge(DEFAULT_OPTIONS, preset.options)
+/** Only what differs from `def`, for the copied snippet and the share link. */
 function diff(cur: any, def: any): any {
-  if (Array.isArray(cur) || typeof cur !== "object" || cur === null || typeof def !== "object" || def === null)
-    return JSON.stringify(cur) === JSON.stringify(def) ? undefined : cur
+  if (!isObj(cur) || !isObj(def)) return same(cur, def) ? undefined : cur
   const out: any = {}
   for (const k in cur) {
-    if (k === "routes" || k === "onReady") continue
-    const d = diff(cur[k], def?.[k])
+    if (k === "onReady") continue
+    const d = diff(cur[k], def[k])
     if (d !== undefined) out[k] = d
   }
   return Object.keys(out).length ? out : undefined
 }
+const b64 = {
+  enc: (s: string) => btoa(Array.from(new TextEncoder().encode(s), (b) => String.fromCharCode(b)).join("")),
+  dec: (s: string) => new TextDecoder().decode(Uint8Array.from(atob(s), (c) => c.charCodeAt(0))),
+}
+/** Readable JS object literal: short arrays stay on one line. */
+function ser(v: any, pad = ""): string {
+  if (Array.isArray(v)) {
+    const flat = `[${v.map((x) => ser(x, pad)).join(", ")}]`
+    if (!flat.includes("\n") && (flat.length <= 72 || v.every((x) => typeof x !== "object"))) return flat
+    return `[\n${v.map((x) => `${pad}  ${ser(x, pad + "  ")}`).join(",\n")}\n${pad}]`
+  }
+  if (isObj(v)) {
+    const flat = Object.keys(v).length <= 3 && Object.values(v).every((x) => typeof x !== "object" || (Array.isArray(x) && x.every((y) => typeof y !== "object")))
+    const parts = Object.keys(v).map((k) => `${k}: ${ser(v[k], pad + "  ")}`)
+    if (flat && parts.join(", ").length <= 60) return `{ ${parts.join(", ")} }`
+    return `{\n${parts.map((p) => `${pad}  ${p}`).join(",\n")}\n${pad}}`
+  }
+  return JSON.stringify(v)
+}
+
+// ---------- colour parsing ----------
+const probe = document.createElement("canvas").getContext("2d")
+/** A hex string, "transparent", or any CSS colour that resolves to an opaque hex. Null if not a colour. */
+function parseColour(raw: string): string | null {
+  const v = raw.trim().toLowerCase()
+  if (!v) return null
+  if (v === "transparent") return v
+  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/.exec(v)
+  if (m) {
+    const h = m[1].length === 3 ? m[1].split("").map((c) => c + c).join("") : m[1]
+    return `#${h}`
+  }
+  if (!probe || !/^[a-z]+$|^(rgb|hsl)a?\(/.test(v)) return null
+  probe.fillStyle = "#010203"
+  probe.fillStyle = v
+  const out = probe.fillStyle
+  if (out === "#010203" && v !== "#010203") {
+    probe.fillStyle = "#fefdfc"
+    probe.fillStyle = v
+    if (probe.fillStyle === "#fefdfc") return null
+  }
+  return /^#[0-9a-f]{6}$/.test(probe.fillStyle) ? probe.fillStyle : null
+}
 
 // ---------- state ----------
 let presetName = "Stripe"
-let state: GlobeOptions = resolve(PRESETS[0])
-const groupMemory: Record<string, any> = {}
+let base: GlobeOptions = resolve(PRESETS[0])
+let state: GlobeOptions = clone(base)
+const groupMemory: Partial<Record<Group, any>> = {}
+const presetOf = (name: string) => PRESETS.find((p) => p.name === name) ?? PRESETS[0]
 
-const fromHash = () => {
-  try {
-    const h = decodeURIComponent(location.hash.slice(1))
-    if (!h) return
-    const saved = JSON.parse(atob(h))
-    presetName = saved.preset ?? presetName
-    state = { ...resolve(PRESETS.find((p) => p.name === presetName) ?? PRESETS[0]), ...saved.options }
-  } catch {
-    /* ignore a bad link */
+try {
+  const h = decodeURIComponent(location.hash.slice(1))
+  if (h) {
+    const saved = JSON.parse(b64.dec(h))
+    presetName = presetOf(saved.preset ?? presetName).name
+    base = resolve(presetOf(presetName))
+    state = merge(base, saved.options ?? {})
   }
+} catch {
+  /* ignore a bad link */
 }
-fromHash()
 
 const stage = document.getElementById("stage")!
 const globe = createParticleGlobe(stage, { ...state, flatTransition: 1200 })
 if (!globe) stage.insertAdjacentHTML("beforeend", '<p class="err">This browser has no WebGL, so the globe can\'t draw here.</p>')
+const push = (input: GlobeInput) => globe?.update(input)
 
-function push(input: GlobeInput) {
-  globe?.update(input)
+const groupFallback = (g: Group): any => (g === "atmosphere" ? { color: ATMO_COLOUR[presetName] ?? "#9e94ff", strength: 0.2, size: 1.12 } : clone(DEFAULT_OPTIONS[g]))
+/** The value a control returns to: the preset's, or the library default for a group the preset leaves off. */
+function baseline(path: string, group?: Group): any {
+  const v = get(base, path)
+  if (v !== undefined || !group) return v
+  return get({ [group]: groupFallback(group) }, path)
 }
-function setPage() {
-  const preset = PRESETS.find((p) => p.name === presetName)
-  document.documentElement.dataset.stage = preset?.page ?? "light"
+/** Current value, or what the control would start from while its group is switched off. */
+const cur = (path: string, group?: Group) => get(state, path) ?? (group ? baseline(path, group) : undefined)
+const modified = (path: string, group?: Group) => {
+  if (group && !state[group]) return false
+  const v = get(state, path)
+  return v !== undefined && !same(v, baseline(path, group))
 }
 
-// ---------- build the panel ----------
+// ---------- icons ----------
+const ic = (d: string, w = 12) => `<svg width="${w}" height="${w}" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`
+const CHEV = ic('<path d="M4.5 2.5 8 6 4.5 9.5"/>')
+const RESET = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.6 7a4.4 4.4 0 1 0 1.4-3.2"/><path d="M2.4 1.8v2.6h2.6"/></svg>`
+const SUN = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1"/></svg>`
+const MOON = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.4 9.6A5.6 5.6 0 0 1 6.4 2.6a5.6 5.6 0 1 0 7 7Z"/></svg>`
+
+// ---------- controls ----------
+const sync: Array<() => void> = []
+let uid = 0
+
+function commit(path: string, value: unknown, group?: Group) {
+  if (group && !state[group]) return
+  setPath(state, path, value)
+  const top = path.split(".")[0] as keyof GlobeOptions
+  push({ [top]: clone((state as any)[top]) } as GlobeInput)
+  refresh()
+}
+function resetPath(path: string, group?: Group) {
+  const v = baseline(path, group)
+  if (v !== undefined) commit(path, clone(v), group)
+}
+
+function segControl(r: SegRow, group?: Group): HTMLElement {
+  const seg = document.createElement("div")
+  seg.className = "seg" + (r.wrap ? " wrap" : "")
+  seg.setAttribute("role", "group")
+  seg.setAttribute("aria-label", r.label)
+  const btns = r.options.map(([v, l]) => {
+    const b = document.createElement("button")
+    b.type = "button"
+    b.textContent = l
+    b.addEventListener("click", () => commit(r.path, v, group))
+    seg.appendChild(b)
+    return [b, v] as const
+  })
+  sync.push(() => btns.forEach(([b, v]) => b.setAttribute("aria-pressed", String(get(state, r.path) === v))))
+  return seg
+}
+
+function dotReset(path: string, label: string, group?: Group): HTMLButtonElement {
+  const b = document.createElement("button")
+  b.type = "button"
+  b.className = "dot-reset"
+  b.disabled = true
+  b.title = `Reset ${label.toLowerCase()} to the preset value`
+  b.setAttribute("aria-label", b.title)
+  b.addEventListener("click", () => resetPath(path, group))
+  sync.push(() => {
+    b.disabled = !modified(path, group)
+  })
+  return b
+}
+
+function colourField(path: string, label: string, group?: Group): HTMLElement {
+  const wrap = document.createElement("span")
+  wrap.className = "cfield"
+  wrap.innerHTML = `<label class="swatch" title="Pick a colour"><i></i><input type="color" aria-label="${label} colour picker"></label><input class="hex" type="text" spellcheck="false" autocomplete="off" autocapitalize="off" maxlength="24" aria-label="${label} colour, hex or CSS colour">`
+  const pick = wrap.querySelector<HTMLInputElement>("input[type=color]")!
+  const hex = wrap.querySelector<HTMLInputElement>(".hex")!
+  const chip = wrap.querySelector<HTMLElement>("i")!
+  pick.addEventListener("input", () => commit(path, pick.value, group))
+  hex.addEventListener("input", () => {
+    const c = parseColour(hex.value)
+    wrap.classList.toggle("bad", !c)
+    if (c) commit(path, c, group)
+  })
+  hex.addEventListener("blur", () => {
+    wrap.classList.remove("bad")
+    hex.value = String(cur(path, group) ?? "")
+  })
+  hex.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") hex.blur()
+  })
+  sync.push(() => {
+    const v = cur(path, group)
+    if (v === undefined) return
+    chip.style.setProperty("--c", v)
+    pick.value = /^#[0-9a-f]{6}$/i.test(v) ? v : "#ffffff"
+    if (document.activeElement !== hex || parseColour(hex.value) !== parseColour(v)) hex.value = v
+  })
+  return wrap
+}
+
+function rangeRow(r: RangeRow, group?: Group): HTMLElement {
+  const el = document.createElement("div")
+  el.className = "row row-range"
+  const id = `c${uid++}`
+  const scale = r.scale ?? 1
+  const st = r.step * scale
+  const dec = st >= 1 ? 0 : Math.ceil(-Math.log10(st) - 1e-9)
+  const show = (v: number) => (v * scale).toFixed(dec)
+  el.appendChild(dotReset(r.path, r.label, group))
+  el.insertAdjacentHTML(
+    "beforeend",
+    `<label for="${id}">${r.label}</label><input class="slider" id="${id}" type="range" min="${r.min}" max="${r.max}" step="${r.step}"><span class="num"><input type="text" inputmode="decimal" autocomplete="off" spellcheck="false" aria-label="${r.label} value">${r.unit ? `<span class="unit" aria-hidden="true">${r.unit}</span>` : ""}</span>`,
+  )
+  const slider = el.querySelector<HTMLInputElement>(".slider")!
+  const box = el.querySelector<HTMLElement>(".num")!
+  const field = box.querySelector<HTMLInputElement>("input")!
+  const put = (v: number) => {
+    const c = Math.min(r.max, Math.max(r.min, v))
+    commit(r.path, +c.toFixed(6), group)
+  }
+  slider.addEventListener("input", () => commit(r.path, parseFloat(slider.value), group))
+  const fromField = () => {
+    const n = parseFloat(field.value.replace(",", "."))
+    if (Number.isNaN(n)) return false
+    put(n / scale)
+    return true
+  }
+  field.addEventListener("change", () => {
+    box.classList.toggle("bad", !fromField())
+  })
+  field.addEventListener("input", () => box.classList.remove("bad"))
+  field.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      if (!fromField()) box.classList.add("bad")
+      field.select()
+    } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      e.preventDefault()
+      put((cur(r.path, group) as number) + (e.key === "ArrowUp" ? 1 : -1) * r.step * (e.shiftKey ? 10 : 1))
+    } else if (e.key === "Escape") {
+      field.value = show(cur(r.path, group))
+      box.classList.remove("bad")
+    }
+  })
+  field.addEventListener("blur", () => {
+    const v = cur(r.path, group)
+    if (v !== undefined) field.value = show(v)
+    box.classList.remove("bad")
+  })
+  sync.push(() => {
+    const v = cur(r.path, group)
+    if (v === undefined) return
+    slider.value = String(v)
+    slider.style.setProperty("--fill", `${((v - r.min) / (r.max - r.min)) * 100}%`)
+    if (document.activeElement !== field) field.value = show(v)
+  })
+  return el
+}
+
+function colorRow(r: ColorRow, group?: Group): HTMLElement {
+  const el = document.createElement("div")
+  el.className = "row row-color"
+  const id = `c${uid++}`
+  el.appendChild(dotReset(r.path, r.label, group))
+  el.insertAdjacentHTML("beforeend", `<label id="${id}">${r.label}</label><span class="control-end"></span>`)
+  el.querySelector(".control-end")!.appendChild(colourField(r.path, r.label, group))
+  return el
+}
+
+function toggleRow(r: ToggleRow, group?: Group): HTMLElement {
+  const el = document.createElement("div")
+  el.className = "row row-toggle"
+  const id = `c${uid++}`
+  el.appendChild(dotReset(r.path, r.label, group))
+  el.insertAdjacentHTML("beforeend", `<label for="${id}">${r.label}</label><span class="control-end"><span class="switch"><input id="${id}" type="checkbox" role="switch"><span class="track"></span></span></span>`)
+  const inp = el.querySelector("input")!
+  inp.addEventListener("change", () => commit(r.path, inp.checked, group))
+  sync.push(() => {
+    inp.checked = !!cur(r.path, group)
+  })
+  return el
+}
+
+function segRow(r: SegRow, group?: Group): HTMLElement {
+  const el = document.createElement("div")
+  el.className = "row row-seg"
+  el.appendChild(dotReset(r.path, r.label, group))
+  el.insertAdjacentHTML("beforeend", `<span class="label">${r.label}</span>`)
+  el.appendChild(segControl(r, group))
+  return el
+}
+
+function colorSet(s: ColorSet, group?: Group): HTMLElement {
+  const el = document.createElement("div")
+  el.className = "colorset"
+  if (s.bar) {
+    const bar = document.createElement("div")
+    bar.className = "gradient-bar"
+    el.appendChild(bar)
+    sync.push(() => {
+      const [a, b, c] = state.colors
+      bar.style.background = `linear-gradient(90deg, ${a}, ${b} ${Math.round(state.gradientMid * 100)}%, ${c})`
+    })
+  }
+  for (const f of s.fields) el.appendChild(colorRow({ type: "color", path: f.path, label: f.label }, group))
+  return el
+}
+
+// ---------- arc routes: "lat, lon > lat, lon  optional label" ----------
+const N = "(-?\\d+(?:\\.\\d+)?)"
+const LEFT = new RegExp(`^${N}[\\s,]+${N}$`)
+const RIGHT = new RegExp(`^${N}[\\s,]+${N}(?:[\\s,]+(.+))?$`)
+function parseRoutes(text: string): { routes: ArcRoute[]; error?: string } {
+  const routes: ArcRoute[] = []
+  const lines = text.split(/\r?\n/)
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim()
+    if (!line || line.startsWith("#")) continue
+    const parts = line.split(/\s*(?:->|=>|→|>)\s*/)
+    const a = parts.length === 2 ? LEFT.exec(parts[0]) : null
+    const b = parts.length === 2 ? RIGHT.exec(parts[1]) : null
+    if (!a || !b) return { routes, error: `Line ${i + 1}: use  lat, lon > lat, lon  label` }
+    const [la, lo, la2, lo2] = [+a[1], +a[2], +b[1], +b[2]]
+    if (Math.abs(la) > 90 || Math.abs(la2) > 90) return { routes, error: `Line ${i + 1}: latitude runs from -90 to 90` }
+    if (Math.abs(lo) > 180 || Math.abs(lo2) > 180) return { routes, error: `Line ${i + 1}: longitude runs from -180 to 180` }
+    const route: ArcRoute = { from: [la, lo], to: [la2, lo2] }
+    if (b[3]) route.label = b[3].trim()
+    routes.push(route)
+  }
+  return routes.length ? { routes } : { routes, error: "Add at least one route" }
+}
+const routeLines = (rs: ArcRoute[]) => rs.map((r) => `${r.from[0]}, ${r.from[1]} > ${r.to[0]}, ${r.to[1]}${r.label ? "  " + r.label : ""}`).join("\n")
+
+function routesEditor(r: Routes, group?: Group): HTMLElement {
+  const el = document.createElement("div")
+  el.className = "routes"
+  const id = `c${uid++}`
+  el.innerHTML = `<div class="routes-head"><label for="${id}">Routes</label><span><small class="count"></small> <button type="button" class="link-btn">Use preset routes</button></span></div>
+    <textarea id="${id}" spellcheck="false" autocomplete="off" wrap="off" aria-describedby="${id}-h"></textarea>
+    <p class="help" id="${id}-h">One per line: <code>lat, lon &gt; lat, lon  label</code>. The label is optional and shows at the destination when Route labels is on.</p>
+    <p class="err-line" role="alert" hidden></p>`
+  const ta = el.querySelector("textarea")!
+  const err = el.querySelector<HTMLElement>(".err-line")!
+  const count = el.querySelector(".count")!
+  const useDefault = el.querySelector<HTMLButtonElement>(".link-btn")!
+  let timer = 0
+  const apply = () => {
+    const res = parseRoutes(ta.value)
+    err.hidden = !res.error
+    err.textContent = res.error ?? ""
+    ta.setAttribute("aria-invalid", String(!!res.error))
+    if (!res.error) commit(r.path, res.routes, group)
+  }
+  ta.addEventListener("input", () => {
+    clearTimeout(timer)
+    timer = window.setTimeout(apply, 250)
+  })
+  ta.addEventListener("blur", () => {
+    if (!err.hidden) {
+      ta.value = routeLines(get(state, r.path))
+      err.hidden = true
+    }
+  })
+  useDefault.addEventListener("click", () => {
+    resetPath(r.path, group)
+    ta.value = routeLines(get(state, r.path))
+    err.hidden = true
+  })
+  sync.push(() => {
+    const v = cur(r.path, group) as ArcRoute[] | undefined
+    if (!v) return
+    count.textContent = `${v.length} route${v.length === 1 ? "" : "s"}`
+    useDefault.hidden = !modified(r.path, group)
+    if (document.activeElement !== ta) ta.value = routeLines(v)
+  })
+  return el
+}
+
+function build(item: Item, group?: Group): HTMLElement {
+  switch (item.type) {
+    case "range": return rangeRow(item, group)
+    case "color": return colorRow(item, group)
+    case "toggle": return toggleRow(item, group)
+    case "seg": return segRow(item, group)
+    case "colorset": return colorSet(item, group)
+    case "routes": return routesEditor(item, group)
+  }
+}
+const pathsOf = (items: Item[]): string[] =>
+  items.flatMap((i) => (i.type === "colorset" ? i.fields.map((f) => f.path) : [i.path]))
+
+// ---------- panel ----------
 const presetsEl = document.getElementById("presets")!
 for (const p of PRESETS) {
   const b = document.createElement("button")
@@ -207,134 +537,130 @@ for (const p of PRESETS) {
   b.className = "preset"
   b.dataset.name = p.name
   b.innerHTML = `<span class="chip" style="background:linear-gradient(135deg,${p.swatch.join(",")})"></span><span>${p.name}</span>`
-  b.addEventListener("click", () => loadPreset(p.name))
+  b.addEventListener("click", () => {
+    loadPreset(p.name)
+    presetsEl.scrollTo({ left: b.offsetLeft - 16, behavior: "smooth" })
+  })
   presetsEl.appendChild(b)
 }
-
-const sync: Array<() => void> = []
-const fmt = (r: Extract<Row, { type: "range" }>, v: number) =>
-  r.pct ? `${Math.round(v * 100)}%` : r.unit === "°" ? `${Math.round(v)}°` : r.path === "arcs.thickness" ? (v * 1000).toFixed(1) : `${(+v).toFixed(2)}${r.unit ?? ""}`
+document.getElementById("projection")!.appendChild(segControl(PROJECTION))
 
 const sectionsEl = document.getElementById("sections")!
+const setOpen = (collapse: HTMLElement, btn: HTMLElement, open: boolean) => {
+  collapse.dataset.open = String(open)
+  btn.setAttribute("aria-expanded", String(open))
+  collapse.firstElementChild!.toggleAttribute("inert", !open)
+}
+
 for (const sec of SECTIONS) {
-  const d = document.createElement("details")
-  d.className = "section"
-  if (sec.open) d.open = true
-  const sum = document.createElement("summary")
-  sum.innerHTML = `<span class="title">${sec.title}</span>`
-  d.appendChild(sum)
-  if (sec.group) {
-    const g = sec.group
+  const g = sec.group
+  const key = `s${uid++}`
+  const root = document.createElement("section")
+  root.className = "section"
+  root.innerHTML = `<div class="sec-bar"><button type="button" class="sec-toggle" aria-controls="${key}">${CHEV.replace("<svg", '<svg class="chev"')}<span class="sec-title">${sec.title}</span></button><button type="button" class="mini-reset" hidden title="Reset ${sec.title.toLowerCase()} to the preset" aria-label="Reset ${sec.title.toLowerCase()} to the preset">${RESET}</button></div>
+    <div class="collapse" id="${key}"><div class="inner"><div class="rows"></div></div></div>`
+  const toggle = root.querySelector<HTMLButtonElement>(".sec-toggle")!
+  const collapse = root.querySelector<HTMLElement>(".collapse")!
+  const inner = collapse.querySelector<HTMLElement>(".inner")!
+  const rows = inner.querySelector<HTMLElement>(".rows")!
+  const miniReset = root.querySelector<HTMLButtonElement>(".mini-reset")!
+  toggle.addEventListener("click", () => setOpen(collapse, toggle, collapse.dataset.open !== "true"))
+
+  if (g) {
+    const bar = root.querySelector(".sec-bar")!
     const sw = document.createElement("label")
     sw.className = "switch"
     sw.title = `Turn ${sec.title.toLowerCase()} on or off`
-    sw.innerHTML = `<input type="checkbox" role="switch" aria-label="${sec.title}"><span></span>`
+    sw.innerHTML = `<input type="checkbox" role="switch" aria-label="${sec.title} on or off"><span class="track"></span>`
     const box = sw.querySelector("input")!
-    sw.addEventListener("click", (e) => e.stopPropagation())
     box.addEventListener("change", () => {
       const cur = state[g]
       if (box.checked && !cur) {
-        const fallback = g === "atmosphere" ? { color: ATMO_COLOUR[presetName] ?? "#9e94ff", strength: 0.2, size: 1.12 } : DEFAULT_OPTIONS[g]
-        ;(state as any)[g] = clone(groupMemory[g] ?? fallback)
+        ;(state as any)[g] = clone(groupMemory[g] ?? (isObj(base[g]) ? base[g] : groupFallback(g)))
       } else if (!box.checked && cur) {
         groupMemory[g] = clone(cur)
         ;(state as any)[g] = false
       }
       push({ [g]: state[g] } as GlobeInput)
+      if (box.checked) setOpen(collapse, toggle, true)
       refresh()
     })
+    bar.appendChild(sw)
     sync.push(() => {
       box.checked = !!state[g]
-      d.classList.toggle("off", !state[g])
+      root.classList.toggle("off", !state[g])
+      rows.toggleAttribute("inert", !state[g])
+      root.querySelector(".more-wrap")?.toggleAttribute("inert", !state[g])
     })
-    sum.appendChild(sw)
   }
-  const rows = document.createElement("div")
-  rows.className = "rows"
-  for (const r of sec.rows) rows.appendChild(row(r, sec.group))
-  d.appendChild(rows)
-  sectionsEl.appendChild(d)
-}
 
-function commit(r: Row, value: unknown, group?: Section["group"]) {
-  if (group && !state[group]) return
-  setPath(state, r.path, value)
-  const top = r.path.split(".")[0] as keyof GlobeOptions
-  push({ [top]: clone((state as any)[top]) } as GlobeInput)
-  refresh()
-}
+  for (const it of sec.items) rows.appendChild(build(it, g))
 
-function row(r: Row, group?: Section["group"]) {
-  const el = document.createElement("div")
-  el.className = `row row-${r.type}`
-  const id = `c-${r.path.replace(/\./g, "-")}-${r.type}`
-  if (r.type === "seg") {
-    el.innerHTML = `<span class="label" id="${id}">${r.label}</span><div class="seg" role="group" aria-labelledby="${id}"></div>`
-    const seg = el.querySelector(".seg")!
-    const btns = r.options.map(([v, l]) => {
-      const b = document.createElement("button")
-      b.type = "button"
-      b.textContent = l
-      b.addEventListener("click", () => commit(r, v, group))
-      seg.appendChild(b)
-      return [b, v] as const
-    })
-    sync.push(() => btns.forEach(([b, v]) => b.setAttribute("aria-pressed", String(get(state, r.path) === v))))
-    return el
-  }
-  if (r.type === "range") {
-    el.innerHTML = `<label for="${id}">${r.label}</label><output for="${id}"></output><input id="${id}" type="range" min="${r.min}" max="${r.max}" step="${r.step}">`
-    const inp = el.querySelector("input")!
-    const out = el.querySelector("output")!
-    inp.addEventListener("input", () => commit(r, parseFloat(inp.value), group))
+  const allPaths = pathsOf([...sec.items, ...(sec.more ?? [])])
+  if (sec.more) {
+    const mid = `${key}m`
+    const more = document.createElement("div")
+    more.className = "more-wrap"
+    more.innerHTML = `<button type="button" class="more-btn" aria-expanded="false" aria-controls="${mid}">${CHEV.replace("<svg", '<svg class="chev"')}<span>More options</span><span class="count"></span></button>
+      <div class="collapse" id="${mid}" data-open="false"><div class="inner" inert><div class="rows"></div></div></div>`
+    const mBtn = more.querySelector<HTMLButtonElement>(".more-btn")!
+    const mCol = more.querySelector<HTMLElement>(".collapse")!
+    const mRows = more.querySelector<HTMLElement>(".rows")!
+    const mCount = more.querySelector(".count")!
+    for (const it of sec.more) mRows.appendChild(build(it, g))
+    mBtn.addEventListener("click", () => setOpen(mCol, mBtn, mCol.dataset.open !== "true"))
+    const morePaths = pathsOf(sec.more)
     sync.push(() => {
-      const v = get(state, r.path)
-      if (v === undefined) return
-      inp.value = String(v)
-      out.textContent = fmt(r, v)
-      inp.style.setProperty("--fill", `${((v - r.min) / (r.max - r.min)) * 100}%`)
+      const n = morePaths.filter((p) => modified(p, g)).length
+      mCount.textContent = n ? `${n} changed` : ""
     })
-    return el
+    inner.appendChild(more)
   }
-  if (r.type === "color") {
-    el.innerHTML = `<label for="${id}">${r.label}</label><span class="colour"><input id="${id}" type="color"><code></code></span>`
-    const inp = el.querySelector("input")!
-    const code = el.querySelector("code")!
-    inp.addEventListener("input", () => commit(r, inp.value, group))
-    sync.push(() => {
-      const v = get(state, r.path)
-      if (v === undefined) return
-      const hex = v === "transparent" ? "#ffffff" : v
-      inp.value = hex
-      code.textContent = v
-    })
-    return el
-  }
-  el.innerHTML = `<label for="${id}">${r.label}</label><span class="switch"><input id="${id}" type="checkbox" role="switch"><span></span></span>`
-  const inp = el.querySelector("input")!
-  inp.addEventListener("change", () => commit(r, inp.checked, group))
+
+  const groupDiffers = () => !!g && !!state[g] !== !!base[g]
   sync.push(() => {
-    inp.checked = !!get(state, r.path)
+    miniReset.hidden = !(groupDiffers() || allPaths.some((p) => modified(p, g)))
   })
-  return el
+  miniReset.addEventListener("click", () => {
+    if (g) {
+      ;(state as any)[g] = clone(base[g])
+      delete groupMemory[g]
+      push({ [g]: state[g] } as GlobeInput)
+    } else {
+      for (const p of allPaths) {
+        const v = baseline(p)
+        if (v !== undefined) setPath(state, p, clone(v))
+      }
+      for (const top of new Set(allPaths.map((p) => p.split(".")[0]))) push({ [top]: clone((state as any)[top]) } as GlobeInput)
+    }
+    refresh()
+  })
+
+  setOpen(collapse, toggle, !!sec.open)
+  sectionsEl.appendChild(root)
 }
 
+// ---------- refresh, presets, share state ----------
+const editedPill = document.getElementById("modified")!
 function refresh() {
   sync.forEach((f) => f())
   document.querySelectorAll<HTMLButtonElement>(".preset").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.name === presetName)))
-  setPage()
-  history.replaceState(null, "", `#${encodeURIComponent(btoa(JSON.stringify({ preset: presetName, options: diff(state, resolve(PRESETS.find((p) => p.name === presetName)!)) ?? {} })))}`)
+  const ref = { ...base, flat: state.flat }
+  editedPill.hidden = diff(state, ref) === undefined
+  history.replaceState(null, "", `#${encodeURIComponent(b64.enc(JSON.stringify({ preset: presetName, options: diff(state, base) ?? {} })))}`)
 }
 
 function loadPreset(name: string) {
   presetName = name
   const flat = state.flat
-  state = { ...resolve(PRESETS.find((p) => p.name === name)!), flat }
+  base = resolve(presetOf(name))
+  state = { ...clone(base), flat }
+  for (const k of Object.keys(groupMemory)) delete groupMemory[k as Group]
   push(state)
   refresh()
 }
 
-// ---------- actions ----------
+// ---------- header, theme, actions ----------
 const toast = document.getElementById("toast")!
 let toastTimer = 0
 const flash = (m: string) => {
@@ -344,20 +670,45 @@ const flash = (m: string) => {
   toastTimer = window.setTimeout(() => toast.classList.remove("on"), 2200)
 }
 const copy = (text: string, done: string) =>
-  navigator.clipboard.writeText(text).then(
+  (navigator.clipboard?.writeText(text) ?? Promise.reject()).then(
     () => flash(done),
     () => flash("Couldn't reach the clipboard. Select the text instead."),
   )
 
+const themeBtn = document.getElementById("theme")!
+const isDark = () => {
+  const t = document.documentElement.dataset.theme
+  return t ? t === "dark" : matchMedia("(prefers-color-scheme: dark)").matches
+}
+const paintTheme = () => {
+  themeBtn.innerHTML = isDark() ? SUN : MOON
+  const label = isDark() ? "Switch to light theme" : "Switch to dark theme"
+  themeBtn.title = label
+  themeBtn.setAttribute("aria-label", label)
+}
+themeBtn.addEventListener("click", () => {
+  const next = isDark() ? "light" : "dark"
+  document.documentElement.dataset.theme = next
+  try {
+    localStorage.setItem("pg-theme", next)
+  } catch {
+    /* private mode */
+  }
+  paintTheme()
+})
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", paintTheme)
+paintTheme()
+
+document.getElementById("copy-install")!.addEventListener("click", () => copy("npm i particle-globe", "Install command copied"))
 document.getElementById("copy-code")!.addEventListener("click", () => {
   const opts = diff(state, DEFAULT_OPTIONS) ?? {}
-  const body = JSON.stringify(opts, null, 2).replace(/"([a-zA-Z]+)":/g, "$1:")
-  copy(
-    `import { createParticleGlobe } from "particle-globe"\n\ncreateParticleGlobe(document.getElementById("globe"), ${body})\n`,
-    "Code copied",
-  )
+  const body = Object.keys(opts).length ? ser(opts) : "{}"
+  copy(`import { createParticleGlobe } from "particle-globe"\n\ncreateParticleGlobe(document.getElementById("globe"), ${body})\n`, "Code copied")
 })
 document.getElementById("copy-link")!.addEventListener("click", () => copy(location.href, "Link copied"))
-document.getElementById("reset")!.addEventListener("click", () => loadPreset(presetName))
+document.getElementById("reset")!.addEventListener("click", () => {
+  loadPreset(presetName)
+  flash("Back to the " + presetName + " preset")
+})
 
 refresh()
