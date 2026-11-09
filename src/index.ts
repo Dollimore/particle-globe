@@ -10,7 +10,7 @@
  * The element is the stage: the globe fills it and keeps its own canvas and
  * label layer inside it. Give it a size; a square works best.
  */
-import { LAND_H, LAND_RLE, LAND_W } from "./land-mask"
+import { LAND_DATA, LAND_H, LAND_W } from "./land-mask"
 
 export type LatLon = [number, number]
 
@@ -287,33 +287,40 @@ function flatXY(lat: number, lon: number, centre: number): [number, number] {
 
 // ---------- land ----------
 let landGrid: Uint8Array | null = null
+// Cells are padded by 2 on the left, right and top so the decoder can look around without bounds checks.
+const LAND_S = LAND_W + 4
 function landMask() {
   if (landGrid) return landGrid
-  const raw = atob(LAND_RLE)
-  const g = new Uint8Array(LAND_W * LAND_H)
+  // Adaptive binary range decoder; the model mirrors scripts/build-land.mjs.
+  const raw = atob(LAND_DATA)
+  const g = new Uint8Array(LAND_S * (LAND_H + 2))
+  const p = new Float64Array(128).fill(0.5)
+  const seen = new Float64Array(128)
+  let range = 0xffffffff
+  let code = 0
   let i = 0
-  let p = 0
-  let cur = 0
-  while (i < raw.length) {
-    let n = 0
-    let s = 0
-    let b: number
-    do {
-      b = raw.charCodeAt(i++)
-      n |= (b & 0x7f) << s
-      s += 7
-    } while (b & 0x80)
-    if (cur) g.fill(1, p, p + n)
-    p += n
-    cur ^= 1
-  }
+  for (; i < 4; ) code = code * 256 + raw.charCodeAt(i++)
+  for (let y = 0; y < LAND_H; y++)
+    for (let x = 0; x < LAND_W; x++) {
+      const j = (y + 2) * LAND_S + x + 2
+      let c = 0
+      for (const k of [1, 2, LAND_S + 1, LAND_S, LAND_S - 1, LAND_S - 2, 2 * LAND_S]) c = c * 2 + g[j - k]
+      const bound = (range >>> 15) * (((1 - p[c]) * 32766 + 1) | 0)
+      let b = 0
+      if (code < bound) range = bound
+      else (code -= bound), (range -= bound), (b = 1)
+      while (range < 2 ** 24) (range *= 256), (code = code * 256 + (raw.charCodeAt(i++) || 0))
+      p[c] += (b - p[c]) / (seen[c] + 2)
+      if (seen[c] < 1000) seen[c]++
+      g[j] = b
+    }
   landGrid = g
   return g
 }
 const isLand = (g: Uint8Array, lat: number, lon: number) => {
   const r = Math.min(LAND_H - 1, Math.max(0, Math.floor(((90 - lat) / 180) * LAND_H)))
   const c = Math.min(LAND_W - 1, Math.max(0, Math.floor(((lon + 180) / 360) * LAND_W)))
-  return g[r * LAND_W + c] === 1
+  return g[(r + 2) * LAND_S + c + 2] === 1
 }
 /** Evenly spread points (golden spiral), kept where there is land. */
 function landPoints(candidates: number) {
