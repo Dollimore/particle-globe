@@ -124,7 +124,7 @@ The defaults are exported as `DEFAULT_OPTIONS` and `DEFAULT_ROUTES`. Types: `Glo
 
 ## Performance
 
-- The library is about 13.5 KB gzipped (28.2 KB raw, 12.2 KB brotli), including the land data. Run `npm run size` to measure it.
+- The library is about 11.1 KB gzipped (23.3 KB raw, 9.9 KB brotli), including the land data. Run `npm run size` to measure it.
 - Land is a 5 KB run-length grid, not a mesh or a texture download.
 - Rendering pauses while the stage is off screen (`pauseOffscreen`) and holds still for reduced motion (`respectReducedMotion`).
 - The canvas pixel ratio is capped at `maxPixelRatio` (2). Lower it, or lower `dots.density` and `particles.amount`, on slow devices.
