@@ -2,7 +2,7 @@
 
 A tiny particle globe for the web: land as glowing dots, particles, arcs between places, region focus, and a morph to a flat Mercator map. Plain WebGL, no dependencies.
 
-Demo and customiser: https://dollimore.github.io/particle-globe/
+Demo and customiser: https://globe.mickydollimore.com/
 
 ![The particle-globe customiser](docs/screenshot.png)
 
