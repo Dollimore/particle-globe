@@ -213,17 +213,57 @@ const GROUP_DEFAULTS = {
 }
 
 function merge(base: GlobeOptions, input: GlobeInput): GlobeOptions {
-  const out = { ...base, ...(input as Partial<GlobeOptions>) } as GlobeOptions
-  out.dots = { ...base.dots, ...input.dots }
-  out.rotation = { ...base.rotation, ...input.rotation }
-  out.rim = { ...base.rim, ...input.rim }
-  out.globe = { ...base.globe, ...input.globe }
+  const inp = (input && typeof input === "object" ? input : {}) as GlobeInput
+  const out = { ...base, ...(inp as Partial<GlobeOptions>) } as GlobeOptions
+  out.dots = { ...base.dots, ...inp.dots }
+  out.rotation = { ...base.rotation, ...inp.rotation }
+  out.rim = { ...base.rim, ...inp.rim }
+  out.globe = { ...base.globe, ...inp.globe }
   for (const k of ["particles", "atmosphere", "arcs"] as const) {
-    const v = (input as unknown as Record<string, unknown>)[k]
+    const v = (inp as unknown as Record<string, unknown>)[k]
     if (v === undefined) continue
-    ;(out as unknown as Record<string, unknown>)[k] = v === false ? false : { ...(base[k] || GROUP_DEFAULTS[k]), ...(v as object) }
+    ;(out as unknown as Record<string, unknown>)[k] = v && typeof v === "object" ? { ...(base[k] || GROUP_DEFAULTS[k]), ...(v as object) } : false
   }
-  return out
+  return clean(out, base)
+}
+
+const isNum = (v: unknown): v is number => typeof v === "number" && isFinite(v)
+const isLL = (v: unknown): v is LatLon => Array.isArray(v) && isNum(v[0]) && isNum(v[1])
+/** Keep `v` if it has the type of the default `d` (numbers must be finite, colours must parse); otherwise use `d`. */
+function fix(v: any, d: any): any {
+  if (typeof d === "number") return isNum(v) ? v : d
+  if (typeof d === "boolean") return typeof v === "boolean" ? v : d
+  if (typeof d === "string") return typeof v === "string" && (d[0] !== "#" || parseColour(v)) ? v : d
+  if (Array.isArray(d)) return Array.isArray(v) && v.length >= d.length ? d.map((x, i) => fix(v[i], x)) : d
+  const r: any = {}
+  for (const k in d) r[k] = k === "routes" ? v && v[k] : fix(v && v[k], d[k])
+  return r
+}
+/** Bad values (NaN, wrong type, unparseable colour) fall back to what was in effect before. */
+function clean(o: GlobeOptions, base: GlobeOptions): GlobeOptions {
+  const out: any = {}
+  const b: any = base
+  for (const k in b) {
+    if (k === "onReady") continue
+    const d = b[k]
+    const v = (o as any)[k]
+    if (k === "particles" || k === "atmosphere" || k === "arcs") out[k] = v === false ? false : fix(v, d || (GROUP_DEFAULTS as any)[k])
+    else out[k] = fix(v, d)
+  }
+  if (typeof o.onReady === "function") out.onReady = o.onReady
+  out.rotation.direction = out.rotation.direction < 0 ? -1 : 1
+  out.flat = Math.max(0, Math.min(1, out.flat))
+  out.gradientMid = Math.max(0.01, Math.min(0.99, out.gradientMid))
+  out.maxPixelRatio = Math.max(0.25, out.maxPixelRatio)
+  if (out.arcs) {
+    const rs = (o.arcs && (o.arcs as any).routes) as unknown
+    out.arcs.routes = (Array.isArray(rs) ? rs : []).filter((r: any) => r && isLL(r.from) && isLL(r.to)).map((r: ArcRoute) => ({
+      from: [r.from[0], r.from[1]] as LatLon,
+      to: [r.to[0], r.to[1]] as LatLon,
+      label: typeof r.label === "string" ? r.label : undefined,
+    }))
+  }
+  return out as GlobeOptions
 }
 
 // ---------- small maths ----------
@@ -341,7 +381,7 @@ function landPoints(candidates: number) {
 }
 
 // ---------- shaders ----------
-const PREC = "precision highp float;\n"
+const PREC = "#ifdef GL_FRAGMENT_PRECISION_HIGH\nprecision highp float;\n#else\nprecision mediump float;\n#endif\n"
 const MORPH = `
   uniform float uMorph, uCentre, uFlatK;
   uniform mat4 viewMatrix;
@@ -464,67 +504,81 @@ const LABEL_CSS = `
 .pg-pill{position:absolute;transform:translate(-50%,-140%);padding:3px 8px;border-radius:999px;background:rgba(17,24,39,.82);color:#fff;font:600 10px/1.4 ui-monospace,Menlo,monospace;letter-spacing:.06em;white-space:nowrap;opacity:0;transition:opacity .3s}
 .pg-pill.on{opacity:1}`
 
-/** Parse any CSS colour to linear-ish RGB 0..1, using the browser. */
-const colourCtx = typeof document !== "undefined" ? document.createElement("canvas").getContext("2d") : null
+let pixelCtx: CanvasRenderingContext2D | null | undefined
 const colourCache = new Map<string, [number, number, number]>()
-function rgb(css: string): [number, number, number] {
+/** Any CSS colour to sRGB 0..1, using the browser. Null when it does not parse. */
+function parseColour(css: string): [number, number, number] | null {
   const hit = colourCache.get(css)
   if (hit) return hit
-  const out = parseColour(css)
+  if (pixelCtx === undefined) {
+    const c = document.createElement("canvas")
+    c.width = c.height = 1
+    pixelCtx = c.getContext("2d", { willReadFrequently: true })
+  }
+  const ctx = pixelCtx
+  if (!ctx) return null
+  const probe = (start: string) => {
+    ctx.fillStyle = start
+    ctx.fillStyle = css
+    return ctx.fillStyle as string
+  }
+  const v = probe("#000")
+  if (v === "#000000" && probe("#fff") === "#ffffff") return null
+  let out: [number, number, number]
+  if (v[0] === "#") {
+    const n = parseInt(v.slice(1), 16)
+    out = [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]
+  } else {
+    // rgba(), or a newer syntax the canvas keeps as written (oklch, color()): read the painted pixel.
+    ctx.clearRect(0, 0, 1, 1)
+    ctx.fillStyle = css
+    ctx.fillRect(0, 0, 1, 1)
+    const d = ctx.getImageData(0, 0, 1, 1).data
+    out = [d[0] / 255, d[1] / 255, d[2] / 255]
+  }
+  if (colourCache.size > 500) colourCache.clear()
   colourCache.set(css, out)
   return out
 }
-function parseColour(css: string): [number, number, number] {
-  if (!colourCtx) return [1, 1, 1]
-  colourCtx.fillStyle = "#000"
-  colourCtx.fillStyle = css
-  const v = colourCtx.fillStyle as string
-  if (v.startsWith("#")) {
-    const n = parseInt(v.slice(1), 16)
-    return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]
-  }
-  const m = v.match(/[\d.]+/g) || ["255", "255", "255"]
-  return [+m[0] / 255, +m[1] / 255, +m[2] / 255]
-}
+const rgb = (css: string) => parseColour(css) || ([1, 1, 1] as [number, number, number])
 
-/** Create a globe inside `stage`. Returns null if WebGL isn't available. */
+/** How many live globes use the injected label stylesheet; the last one out removes it. */
+let styleUsers = 0
+
+/** Create a globe inside `stage`. Returns null if WebGL isn't available (or on the server). */
 export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}): ParticleGlobe | null {
+  if (typeof document === "undefined" || !stage) return null
   let o = merge(DEFAULT_OPTIONS, input)
 
   const canvas = document.createElement("canvas")
-  canvas.style.cssText = "position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:pan-y"
-  const gl = (canvas.getContext("webgl2", { antialias: true, alpha: true, premultipliedAlpha: true }) ||
-    canvas.getContext("webgl", { antialias: true, alpha: true, premultipliedAlpha: true })) as WebGLRenderingContext | null
+  canvas.style.cssText = "position:absolute;inset:0;width:100%;height:100%;display:block"
+  const attrs = { antialias: true, alpha: true, premultipliedAlpha: true }
+  const gl = (canvas.getContext("webgl2", attrs) || canvas.getContext("webgl", attrs)) as WebGLRenderingContext | null
   if (!gl) return null
   const labelLayer = document.createElement("div")
   labelLayer.className = "pg-labels"
-  if (getComputedStyle(stage).position === "static") stage.style.position = "relative"
-  stage.append(canvas, labelLayer)
-  if (!document.getElementById("pg-label-css")) {
-    const st = document.createElement("style")
-    st.id = "pg-label-css"
-    st.textContent = LABEL_CSS
-    document.head.appendChild(st)
-  }
 
   // ---------- GL helpers ----------
   type Prog = { p: WebGLProgram; u: Record<string, WebGLUniformLocation | null>; a: Record<string, number> }
   const programs: WebGLProgram[] = []
   const buffers: WebGLBuffer[] = []
   function program(vs: string, fs: string): Prog {
+    const shaders: WebGLShader[] = []
     const sh = (type: number, src: string) => {
       const s = gl!.createShader(type)!
+      shaders.push(s)
       gl!.shaderSource(s, src)
       gl!.compileShader(s)
       if (!gl!.getShaderParameter(s, gl!.COMPILE_STATUS)) throw new Error(gl!.getShaderInfoLog(s) || "shader")
       return s
     }
     const p = gl!.createProgram()!
+    programs.push(p)
     gl!.attachShader(p, sh(gl!.VERTEX_SHADER, vs))
     gl!.attachShader(p, sh(gl!.FRAGMENT_SHADER, fs))
     gl!.linkProgram(p)
+    shaders.forEach((s) => gl!.deleteShader(s))
     if (!gl!.getProgramParameter(p, gl!.LINK_STATUS)) throw new Error(gl!.getProgramInfoLog(p) || "link")
-    programs.push(p)
     const u: Prog["u"] = {}
     const n = gl!.getProgramParameter(p, gl!.ACTIVE_UNIFORMS)
     for (let i = 0; i < n; i++) {
@@ -547,17 +601,23 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
     buffers.push(b)
     return b
   }
+  /** Vertex attribute slots currently enabled. Anything this draw does not use is switched off, so a freed buffer never stays bound to a live slot. */
+  const enabled = new Set<number>()
   function bindAttribs(pr: Prog, attrs: Record<string, [WebGLBuffer, number]>) {
+    const used = new Set<number>()
+    for (const name in pr.a) if (attrs[name] && pr.a[name] >= 0) used.add(pr.a[name])
+    enabled.forEach((loc) => {
+      if (!used.has(loc)) gl!.disableVertexAttribArray(loc)
+    })
+    enabled.clear()
     for (const name in pr.a) {
       const loc = pr.a[name]
       const at = attrs[name]
-      if (!at) {
-        gl!.disableVertexAttribArray(loc)
-        continue
-      }
+      if (!at || loc < 0) continue
       gl!.bindBuffer(gl!.ARRAY_BUFFER, at[0])
       gl!.enableVertexAttribArray(loc)
       gl!.vertexAttribPointer(loc, at[1], gl!.FLOAT, false, 0, 0)
+      enabled.add(loc)
     }
   }
   const set = (pr: Prog, name: string, v: number | number[] | Float32Array) => {
@@ -570,21 +630,8 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
     else gl!.uniformMatrix4fv(loc, false, v as Float32Array)
   }
 
-  let progs: Record<"body" | "halo" | "dot" | "float" | "arc" | "ring", Prog>
-  try {
-    progs = {
-      body: program(MESH_VERT, BODY_FRAG),
-      halo: program(MESH_VERT, HALO_FRAG),
-      dot: program(DOT_VERT, DOT_FRAG),
-      float: program(FLOAT_VERT, DOT_FRAG),
-      arc: program(ARC_VERT, ARC_FRAG),
-      ring: program(RING_VERT, RING_FRAG),
-    }
-  } catch {
-    canvas.remove()
-    labelLayer.remove()
-    return null
-  }
+  type Attrs = Record<string, [WebGLBuffer, number]>
+  let progs!: Record<"body" | "halo" | "dot" | "float" | "arc" | "ring", Prog>
 
   // ---------- geometry ----------
   function sphere(r: number, seg: number) {
@@ -611,8 +658,8 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
       }
     return { pos: buffer(new Float32Array(pos)), nor: buffer(new Float32Array(nor)), idx: buffer(new Uint16Array(idx), true), count: idx.length }
   }
-  const bodyGeo = sphere(R * 0.995, 72)
-  const haloGeo = sphere(R, 48)
+  let bodyGeo!: ReturnType<typeof sphere>
+  let haloGeo!: ReturnType<typeof sphere>
 
   const pts = landPoints(70000)
   const n = pts.length / 2
@@ -630,13 +677,7 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
     dKeep[i] = Math.random()
     dSize[i] = 0.45 + Math.pow(Math.random(), 2) * 0.55
   }
-  const dots = {
-    position: [buffer(dPos), 3] as [WebGLBuffer, number],
-    aLL: [buffer(dLL), 2] as [WebGLBuffer, number],
-    aSeed: [buffer(dSeed), 1] as [WebGLBuffer, number],
-    aSize: [buffer(dSize), 1] as [WebGLBuffer, number],
-    aKeep: [buffer(dKeep), 1] as [WebGLBuffer, number],
-  }
+  let dots!: Attrs
 
   const FN = 6000
   const fPos = new Float32Array(FN * 3)
@@ -656,14 +697,7 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
     fPhase[i] = Math.random()
     fSize[i] = 0.5 + Math.pow(Math.random(), 2) * 0.6
   }
-  const floaters = {
-    position: [buffer(fPos), 3] as [WebGLBuffer, number],
-    aLL: [buffer(fLL), 2] as [WebGLBuffer, number],
-    aSeed: [buffer(fSeed), 1] as [WebGLBuffer, number],
-    aSize: [buffer(fSize), 1] as [WebGLBuffer, number],
-    aKeep: [buffer(fKeep), 1] as [WebGLBuffer, number],
-    aPhase: [buffer(fPhase), 1] as [WebGLBuffer, number],
-  }
+  let floaters!: Attrs
 
   // ---------- arcs ----------
   const SEG = 64
@@ -711,8 +745,8 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
     }
   const tubeT = new Float32Array((SEG + 1) * (RAD + 1))
   for (let i = 0; i < tubeT.length; i++) tubeT[i] = Math.floor(i / (RAD + 1)) / SEG
-  const tubeIdxBuf = buffer(new Uint16Array(tubeIdx), true)
-  const tubeTBuf = buffer(tubeT)
+  let tubeIdxBuf!: WebGLBuffer
+  let tubeTBuf!: WebGLBuffer
 
   type Arc = { pos: WebGLBuffer; flat: WebGLBuffer; vb: number[]; pill: HTMLDivElement; idx: number; shift: number }
   let arcs: Arc[] = []
@@ -725,6 +759,8 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
     if (i >= 0) buffers.splice(i, 1)
   }
   function clearArcs() {
+    enabled.forEach((loc) => gl!.disableVertexAttribArray(loc))
+    enabled.clear()
     for (const a of arcs) {
       freeBuf(a.pos)
       freeBuf(a.flat)
@@ -734,6 +770,50 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
     if (ring) [ring.pos, ring.ll, ring.s, ring.o].forEach(freeBuf)
     ring = null
   }
+  /** Compile the programs and upload every buffer. Runs once, and again after a lost context comes back. */
+  function initGL(): boolean {
+    programs.length = 0
+    buffers.length = 0
+    enabled.clear()
+    try {
+      progs = {
+        body: program(MESH_VERT, BODY_FRAG),
+        halo: program(MESH_VERT, HALO_FRAG),
+        dot: program(DOT_VERT, DOT_FRAG),
+        float: program(FLOAT_VERT, DOT_FRAG),
+        arc: program(ARC_VERT, ARC_FRAG),
+        ring: program(RING_VERT, RING_FRAG),
+      }
+      bodyGeo = sphere(R * 0.995, 72)
+      haloGeo = sphere(R, 48)
+    } catch {
+      return false
+    }
+    dots = {
+      position: [buffer(dPos), 3],
+      aLL: [buffer(dLL), 2],
+      aSeed: [buffer(dSeed), 1],
+      aSize: [buffer(dSize), 1],
+      aKeep: [buffer(dKeep), 1],
+    }
+    floaters = {
+      position: [buffer(fPos), 3],
+      aLL: [buffer(fLL), 2],
+      aSeed: [buffer(fSeed), 1],
+      aSize: [buffer(fSize), 1],
+      aKeep: [buffer(fKeep), 1],
+      aPhase: [buffer(fPhase), 1],
+    }
+    tubeIdxBuf = buffer(new Uint16Array(tubeIdx), true)
+    tubeTBuf = buffer(tubeT)
+    // Arc and ring buffers belonged to the old context; buildArcs makes them again.
+    arcs.forEach((a) => a.pill.remove())
+    arcs = []
+    ring = null
+    arcKey = ""
+    return true
+  }
+
   function buildArcs() {
     const cfg = o.arcs
     const key = cfg ? JSON.stringify([cfg.routes, cfg.thickness, cfg.height, o.flatCentre]) : ""
@@ -782,6 +862,7 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
       labelLayer.appendChild(pill)
       return { pos: buffer(new Float32Array(sph)), flat: buffer(new Float32Array(flat)), vb, pill, idx: i, shift }
     })
+    if (!count) return
     const sArr = new Float32Array(count * 2)
     const oArr = new Float32Array(count * 2)
     ring = {
@@ -796,34 +877,58 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
   }
 
   // ---------- state ----------
+  if (!initGL()) {
+    programs.forEach((p) => gl.deleteProgram(p))
+    return null
+  }
+  const ownsPosition = getComputedStyle(stage).position === "static"
+  if (ownsPosition) stage.style.position = "relative"
+  stage.append(canvas, labelLayer)
+  if (styleUsers++ === 0 && !document.getElementById("pg-label-css")) {
+    const st = document.createElement("style")
+    st.id = "pg-label-css"
+    st.textContent = LABEL_CSS
+    document.head.appendChild(st)
+  }
+
   const reduceQuery = matchMedia("(prefers-reduced-motion: reduce)")
   const reduced = () => o.respectReducedMotion && reduceQuery.matches
   let morph = o.flat
   let morphFrom = morph
   let morphTo = morph
   let morphStart = 0
+  let destroyed = false
+  let lost = false
+  let dirty = true
 
   let dragging = false
+  let dragId = -1
   let lastX = 0
   let vel = 0
   let userRot = 0
   const onDown = (e: PointerEvent) => {
-    if (!o.draggable) return
+    if (!o.draggable || dragging || (e.pointerType === "mouse" && e.button !== 0)) return
     dragging = true
+    dragId = e.pointerId
     lastX = e.clientX
     vel = 0
-    canvas.setPointerCapture(e.pointerId)
+    try {
+      canvas.setPointerCapture(e.pointerId)
+    } catch {}
     canvas.style.cursor = "grabbing"
   }
   const onMove = (e: PointerEvent) => {
-    if (!dragging) return
+    if (!dragging || e.pointerId !== dragId) return
     const dx = e.clientX - lastX
     lastX = e.clientX
     vel = dx * 0.005
     userRot += vel
+    dirty = true
   }
-  const onUp = () => {
+  const onUp = (e: PointerEvent) => {
+    if (e.pointerId !== dragId) return
     dragging = false
+    dragId = -1
     canvas.style.cursor = o.draggable ? "grab" : ""
   }
   canvas.addEventListener("pointerdown", onDown)
@@ -837,29 +942,43 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
   let proj = ident()
   let px = 1
   function resize() {
+    if (destroyed) return
     W = Math.max(1, stage.clientWidth)
     H = Math.max(1, stage.clientHeight)
     dpr = Math.min(window.devicePixelRatio || 1, o.maxPixelRatio)
-    canvas.width = Math.round(W * dpr)
-    canvas.height = Math.round(H * dpr)
+    const cw = Math.max(1, Math.round(W * dpr))
+    const ch = Math.max(1, Math.round(H * dpr))
+    // Assigning the size clears the canvas, so only do it when it changed.
+    if (canvas.width !== cw) canvas.width = cw
+    if (canvas.height !== ch) canvas.height = ch
     const fov = W >= H ? 30 : (2 * Math.atan(Math.tan(15 * DEG) * (H / W))) / DEG
     proj = perspective(fov * DEG, W / H, 0.1, 100)
     px = dpr * (Math.min(W, H) / 640) * 1.25
+    dirty = true
   }
-  const ro = new ResizeObserver(resize)
-  ro.observe(stage)
+  const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(resize) : null
+  ro?.observe(stage)
+  if (!ro) window.addEventListener("resize", resize)
   resize()
 
   let onScreen = true
-  const io = new IntersectionObserver((es) => {
-    onScreen = es[0].isIntersecting
-  })
-  io.observe(stage)
+  const io =
+    typeof IntersectionObserver !== "undefined"
+      ? new IntersectionObserver((es) => {
+          onScreen = es[es.length - 1].isIntersecting
+          if (onScreen) wake()
+        })
+      : null
+  io?.observe(stage)
 
+  let bgSet = false
   function applyStatic() {
     buildArcs()
-    stage.style.background = o.background === "transparent" ? "" : o.background
+    if (o.background !== "transparent" || bgSet) stage.style.background = o.background === "transparent" ? "" : o.background
+    bgSet = o.background !== "transparent"
     canvas.style.cursor = o.draggable ? "grab" : ""
+    // Vertical swipes scroll the page; with dragging off, every gesture does.
+    canvas.style.touchAction = o.draggable ? "pan-y" : "auto"
   }
 
   // ---------- frame ----------
@@ -870,17 +989,29 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
   let arcT = 0
   let raf = 0
   let ready = false
+  const paused = () => lost || destroyed || (o.pauseOffscreen && (!onScreen || document.hidden))
+  /** Start the frame loop if it is stopped and there is something to draw. */
+  function wake() {
+    dirty = true
+    if (!raf && !paused()) {
+      last = performance.now()
+      raf = requestAnimationFrame(frame)
+    }
+  }
   function frame(now: number) {
+    raf = 0
+    if (paused() && ready) return
     raf = requestAnimationFrame(frame)
     const dt = Math.min((now - last) / 1000, 0.05)
     last = now
-    if (ready && o.pauseOffscreen && (!onScreen || document.hidden)) return
+    if (dpr !== Math.min(window.devicePixelRatio || 1, o.maxPixelRatio)) resize()
     const still = reduced()
+    // Reduced motion with nothing moving: keep the last frame instead of redrawing it.
+    if (still && !dirty && !dragging && morph === morphTo && Math.abs(vel) < 1e-4) return
+    dirty = false
     t += dt
-    if (!dragging) {
-      vel *= 0.94
-      userRot += vel
-    }
+    vel *= Math.pow(0.94, dt * 60)
+    if (!dragging) userRot += vel
     if (o.rotation.auto && !still) spin += dt * o.rotation.speed * o.rotation.direction
     if (o.arcs) arcT += dt * o.arcs.speed
     if (morph !== morphTo) {
@@ -1080,14 +1211,35 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
     }
   }
 
+  const onVisible = () => {
+    if (!document.hidden) wake()
+  }
+  const onLost = (e: Event) => {
+    e.preventDefault() // lets the browser give the context back
+    lost = true
+  }
+  const onRestored = () => {
+    if (destroyed) return
+    if (!initGL()) return
+    lost = false
+    applyStatic()
+    wake()
+  }
+  const onMotion = () => wake()
+  document.addEventListener("visibilitychange", onVisible)
+  canvas.addEventListener("webglcontextlost", onLost)
+  canvas.addEventListener("webglcontextrestored", onRestored)
+  reduceQuery.addEventListener?.("change", onMotion)
+
   applyStatic()
-  raf = requestAnimationFrame(frame)
+  wake()
 
   return {
     get options() {
       return o
     },
     update(next: GlobeInput) {
+      if (destroyed) return
       const prevStart = o.rotation.startLongitude
       o = merge(o, next)
       if (o.rotation.startLongitude !== prevStart) {
@@ -1097,27 +1249,44 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
       }
       if (o.flat !== morphTo) {
         morphFrom = morph
-        morphTo = Math.max(0, Math.min(1, o.flat))
+        morphTo = o.flat
         morphStart = performance.now()
       }
       applyStatic()
       resize()
+      wake()
     },
     resize,
     destroy() {
+      if (destroyed) return
+      destroyed = true
       cancelAnimationFrame(raf)
-      ro.disconnect()
-      io.disconnect()
+      raf = 0
+      ro?.disconnect()
+      io?.disconnect()
+      if (!ro) window.removeEventListener("resize", resize)
+      document.removeEventListener("visibilitychange", onVisible)
+      reduceQuery.removeEventListener?.("change", onMotion)
       canvas.removeEventListener("pointerdown", onDown)
       canvas.removeEventListener("pointermove", onMove)
       canvas.removeEventListener("pointerup", onUp)
       canvas.removeEventListener("pointercancel", onUp)
-      clearArcs()
-      buffers.forEach((b) => gl!.deleteBuffer(b))
-      programs.forEach((p) => gl!.deleteProgram(p))
-      gl!.getExtension("WEBGL_lose_context")?.loseContext()
+      canvas.removeEventListener("webglcontextlost", onLost)
+      canvas.removeEventListener("webglcontextrestored", onRestored)
+      if (!lost) {
+        clearArcs()
+        buffers.forEach((b) => gl.deleteBuffer(b))
+        programs.forEach((p) => gl.deleteProgram(p))
+      }
+      gl.getExtension("WEBGL_lose_context")?.loseContext()
       canvas.remove()
       labelLayer.remove()
+      if (bgSet) stage.style.background = ""
+      if (ownsPosition) stage.style.position = ""
+      if (--styleUsers <= 0) {
+        styleUsers = 0
+        document.getElementById("pg-label-css")?.remove()
+      }
     },
   }
 }
