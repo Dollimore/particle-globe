@@ -1,10 +1,12 @@
 # particle-globe
 
-A tiny particle globe for the web: land as glowing dots, particles, arcs between places, and a morph to a flat Mercator map. Plain WebGL, no dependencies.
+A tiny particle globe for the web: land as glowing dots, particles, arcs between places, region focus, and a morph to a flat Mercator map. Plain WebGL, no dependencies.
 
 Demo and customiser: https://dollimore.github.io/particle-globe/
 
-<!-- TODO for Micky: add a screenshot or GIF of the globe here -->
+![The particle-globe customiser](docs/screenshot.png)
+
+![A globe that morphs to a flat map and flies to Europe and Asia Pacific](docs/demo.gif)
 
 ## Install
 
@@ -26,15 +28,75 @@ const globe = createParticleGlobe(stage, {
   rotation: { speed: 0.05 },
 })
 
-globe?.update({ flat: 1 }) // animate to the flat map
-globe?.destroy()           // when you are done
+globe?.update({ flat: 1 })            // animate to the flat map
+globe?.update({ focus: "europe" })    // fly the camera to a region
+globe?.destroy()                      // when you are done
 ```
 
-`createParticleGlobe` returns `null` if the browser has no WebGL.
+`createParticleGlobe` returns `null` if the browser has no WebGL, and on the server.
+
+## Frameworks
+
+Four ways in. All of them use the same core, so you pay for it once.
+
+| Import | What it is | Extra size (gzip) |
+|---|---|---|
+| `particle-globe` | The function above. Works anywhere | core |
+| `particle-globe/element` | A `<particle-globe>` custom element | 1.4 KB |
+| `particle-globe/react` | A React 19 component, Next.js App Router ready | 0.6 KB |
+| `particle-globe/astro` | An Astro component that wraps the element | none, it is a source file |
+
+### Vite or plain HTML
+
+```html
+<particle-globe style="width: 480px; height: 480px" focus="europe" colors="#6b54f5,#db61db,#eb4d54"></particle-globe>
+<script type="module">
+  import "particle-globe/element"
+</script>
+```
+
+Simple options are attributes (`flat`, `focus`, `colors`, `dots-size`, `rotation-speed`, `drag="false"`, and so on, in kebab case). For anything else set the `options` property, or put JSON in an `options` attribute. Removing an attribute puts that option back to its default. The element fires a `ready` event and exposes the running globe as `element.globe`.
+
+```js
+document.querySelector("particle-globe").options = { arcs: { labels: true } }
+```
+
+This is also the way in for Vue, Svelte and Solid. In Vue, tell the compiler the tag is a custom element (`isCustomElement: (tag) => tag === "particle-globe"`) and pass objects with `:options.prop="opts"`.
+
+### React and Next.js
+
+```tsx
+import { ParticleGlobe } from "particle-globe/react"
+
+export default function Page() {
+  return <ParticleGlobe style={{ width: 480, height: 480 }} focus="europe" colors={["#6b54f5", "#db61db", "#eb4d54"]} />
+}
+```
+
+Every option is a prop, plus `className`, `style` and any `div` attribute. The globe is created on mount, `update()` runs when props change (it is not recreated), and it is destroyed on unmount. A prop you remove goes back to its default. Pass `ref` for the instance (React 19 takes `ref` as a normal prop):
+
+```tsx
+const ref = useRef<ParticleGlobeInstance | null>(null)
+<ParticleGlobe ref={ref} flat={1} />
+```
+
+The entry starts with `"use client"`, so you can render it from a Server Component in the App Router with no wrapper. React is an optional peer dependency (`react >= 19`); nothing else is installed.
+
+### Astro
+
+```astro
+---
+import ParticleGlobe from "particle-globe/astro"
+---
+<ParticleGlobe class="globe" focus="europe" colors={["#6b54f5", "#db61db", "#eb4d54"]} />
+<style is:global>.globe { display: block; width: 480px; height: 480px }</style>
+```
+
+Props are the options, as plain data (no functions). Astro bundles the script once however many globes are on the page.
 
 ## Options
 
-Pass any subset. Groups (`dots`, `rotation`, `rim`, `globe`, `particles`, `atmosphere`, `arcs`) take partial objects and are merged over the defaults. Ranges are the intended range, not enforced clamps.
+Pass any subset. Bad values (NaN, a wrong type, a colour that does not parse) are ignored and the previous value stays. Groups (`dots`, `rotation`, `rim`, `globe`, `particles`, `atmosphere`, `arcs`) take partial objects and are merged over the defaults. Ranges are the intended range, not enforced clamps.
 
 | Option | Type | Default | Range / notes |
 |---|---|---|---|
@@ -42,9 +104,9 @@ Pass any subset. Groups (`dots`, `rotation`, `rim`, `globe`, `particles`, `atmos
 | `gradientAngle` | `number` | `57` | Degrees across the screen |
 | `gradientMid` | `number` | `0.55` | 0.1 to 0.9 |
 | `dots.intensity` | `number` | `1` | 0 to 2 |
-| `dots.size` | `number` | `1` | 0.2 to 4 |
+| `dots.size` | `number` | `1` | 0.1 to 4. Below 1 the dots turn soft; very small ones are held at about 1.8 px, fainter |
 | `dots.sizeVariation` | `number` | `1` | 0 to 2.5 |
-| `dots.density` | `number` | `0.55` | 0.05 to 1, share of land dots drawn |
+| `dots.density` | `number` | `0.55` | 0.05 to 5. 1 is the default set of dots; above 1 adds more (5 is five times as many) |
 | `dots.twinkle` | `number` | `0.28` | 0 (off) to 1 |
 | `dots.highlight` | `number` | `0.78` | 0 (off) to 1 |
 | `dots.farSide` | `number` | `0` | 0 (hidden) to 1 |
@@ -82,6 +144,8 @@ Pass any subset. Groups (`dots`, `rotation`, `rim`, `globe`, `particles`, `atmos
 | `flat` | `number` | `0` | 0 is the globe, 1 is a flat Mercator map, between morphs |
 | `flatCentre` | `number` | `10` | -180 to 180. Longitude at the centre of the flat map; the map wraps at the opposite side |
 | `flatTransition` | `number` | `1200` | Milliseconds a change to `flat` animates. 0 jumps |
+| `focus` | `Focus` or `null` | `null` | Fly the camera to a region: `"world"`, `"americas"`, `"europe"`, `"africa"`, `"middleEast"`, `"apac"`, or `{ lat, lon, zoom }` (zoom 1 is the whole world, up to 16). `null` is the free globe. Works on the globe and the flat map. Dragging is off while focused |
+| `focusTransition` | `number` | `1600` | Milliseconds a change to `focus` animates. 0 jumps |
 | `draggable` | `boolean` | `true` | Drag to spin |
 | `pauseOffscreen` | `boolean` | `true` | Pause rendering while off screen |
 | `respectReducedMotion` | `boolean` | `true` | Hold still for reduced motion |
@@ -111,7 +175,7 @@ createParticleGlobe(stage, {
 })
 ```
 
-The defaults are exported as `DEFAULT_OPTIONS` and `DEFAULT_ROUTES`. Types: `GlobeOptions`, `GlobeInput`, `ParticleGlobe`, `ArcRoute`, `LatLon`.
+The defaults are exported as `DEFAULT_OPTIONS` and `DEFAULT_ROUTES`, and the region definitions as `REGIONS`. Types: `GlobeOptions`, `GlobeInput`, `ParticleGlobe`, `ArcRoute`, `LatLon`, `Focus`, `RegionName`.
 
 ## Handle
 
@@ -119,19 +183,31 @@ The defaults are exported as `DEFAULT_OPTIONS` and `DEFAULT_ROUTES`. Types: `Glo
 
 - `update(input)` changes any options. Only what you pass changes.
 - `resize()` re-measures the stage. It also happens on its own when the stage resizes.
-- `destroy()` stops rendering, frees GPU resources and removes the canvas.
+- `destroy()` stops rendering and frees every GPU resource, listener, observer and DOM node it added (the canvas, the label layer, and the injected style once the last globe is gone).
 - `options` is the read-only set of options in effect now.
 
-## Performance
+## Performance and size
 
-- The library is about 11.1 KB gzipped (23.3 KB raw, 9.9 KB brotli), including the land data. Run `npm run size` to measure it.
-- Land is a 5 KB run-length grid, not a mesh or a texture download.
-- Rendering pauses while the stage is off screen (`pauseOffscreen`) and holds still for reduced motion (`respectReducedMotion`).
+| Entry | Raw | Gzip | Brotli |
+|---|---|---|---|
+| `particle-globe` (core, with the land data) | 31.0 KB | 14.3 KB | 12.7 KB |
+| `particle-globe/element` | 3.2 KB | 1.4 KB | 1.2 KB |
+| `particle-globe/react` | 1.0 KB | 0.6 KB | 0.5 KB |
+
+The wrappers import the core, so a page that uses one pays for the core once. Run `npm run size` to measure it.
+
+- Land is a 5 KB range-coded grid, not a mesh or a texture download.
+- Rendering stops while the stage is off screen (`pauseOffscreen`) or the tab is hidden, and holds still for reduced motion (`respectReducedMotion`).
 - The canvas pixel ratio is capped at `maxPixelRatio` (2). Lower it, or lower `dots.density` and `particles.amount`, on slow devices.
+- Densities above 1 and zoomed regions build extra dots on first use, which takes a moment on a slow machine.
 
 ## Browser support
 
-Uses WebGL2 and falls back to WebGL1. If neither exists, `createParticleGlobe` returns `null`, so you can show a fallback.
+Uses WebGL2 and falls back to WebGL1. If neither exists, `createParticleGlobe` returns `null`, so you can show a fallback. It also returns `null` on the server, and importing any entry on the server is safe.
+
+It handles a lost WebGL context (it comes back on its own), resizes with its stage, follows device pixel ratio changes, and stops drawing while hidden. With `draggable: false` the canvas never takes touch gestures, so the page scrolls normally; with it on, vertical swipes still scroll the page and horizontal drags spin the globe.
+
+Tested in Chrome (WebGL2, and WebGL1 forced). Written to stay inside what Safari and Firefox support, but not yet tested in them.
 
 ## Accessibility
 
@@ -163,7 +239,7 @@ npm run size
 
 ## Credits
 
-Land outlines from Natural Earth (public domain), https://www.naturalearthdata.com
+Land outlines from [Natural Earth](https://www.naturalearthdata.com) (public domain).
 
 ## Licence
 
