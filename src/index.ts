@@ -31,11 +31,11 @@ export interface GlobeOptions {
   dots: {
     /** Overall brightness, 0 to 2. */
     intensity: number
-    /** Dot size, 0.2 to 4. */
+    /** Dot size, 0.1 to 4. Below 1 the dots turn soft, and very small ones are kept about 1.8 pixels wide, fainter. */
     size: number
     /** How much dots vary in size, 0 to 2.5. */
     sizeVariation: number
-    /** Share of the land dots drawn, 0.05 to 1. */
+    /** Land dots drawn, 0.05 and up. 1 is the default set of dots; above 1 adds more, up to 5 (five times as many). */
     density: number
     /** Twinkle amount, 0 (off) to 1. */
     twinkle: number
@@ -123,6 +123,28 @@ export interface GlobeOptions {
   maxPixelRatio: number
   /** Called once the first frame is on screen. */
   onReady?: () => void
+  /**
+   * Fly the camera to a region or a place. `null` (the default) and "world" are the free globe.
+   * Works on the globe and on the flat map.
+   */
+  focus?: Focus | null
+  /** How long a change of `focus` animates, in milliseconds. Default 1600. 0 jumps. */
+  focusTransition?: number
+}
+
+export type RegionName = "world" | "americas" | "europe" | "africa" | "middleEast" | "apac"
+
+/** `zoom` 1 is the whole world; each step shows a smaller slice of it. */
+export type Focus = RegionName | { lat: number; lon: number; zoom: number }
+
+/** `zoom` is for the globe (about 122 degrees of arc across the stage at 1); `flat` is the same view on the map. */
+export const REGIONS: Record<RegionName, { lat: number; lon: number; zoom: number; flat: number; label: string }> = {
+  world: { lat: 0, lon: 0, zoom: 1, flat: 1, label: "World" },
+  americas: { lat: 15, lon: -78, zoom: 1.08, flat: 2, label: "Americas" },
+  europe: { lat: 53, lon: 12, zoom: 2.1, flat: 5.4, label: "Europe" },
+  africa: { lat: 3, lon: 20, zoom: 1.5, flat: 3.6, label: "Africa" },
+  middleEast: { lat: 29, lon: 46, zoom: 2.9, flat: 6.5, label: "Middle East" },
+  apac: { lat: 14, lon: 112, zoom: 1.35, flat: 3.4, label: "APAC" },
 }
 
 type Group<T> = false | Partial<Exclude<T, false>>
@@ -203,6 +225,8 @@ export const DEFAULT_OPTIONS: GlobeOptions = {
   pauseOffscreen: true,
   respectReducedMotion: true,
   maxPixelRatio: 2,
+  focus: null,
+  focusTransition: 1600,
 }
 
 /** Defaults used when a group switched off with `false` is switched back on. */
@@ -244,13 +268,15 @@ function clean(o: GlobeOptions, base: GlobeOptions): GlobeOptions {
   const out: any = {}
   const b: any = base
   for (const k in b) {
-    if (k === "onReady") continue
+    if (k === "onReady" || k === "focus") continue
     const d = b[k]
     const v = (o as any)[k]
     if (k === "particles" || k === "atmosphere" || k === "arcs") out[k] = v === false ? false : fix(v, d || (GROUP_DEFAULTS as any)[k])
     else out[k] = fix(v, d)
   }
   if (typeof o.onReady === "function") out.onReady = o.onReady
+  const f: any = o.focus
+  out.focus = typeof f === "string" && f in REGIONS ? f : f && isNum(f.lat) && isNum(f.lon) && isNum(f.zoom) ? { lat: f.lat, lon: f.lon, zoom: f.zoom } : null
   out.rotation.direction = out.rotation.direction < 0 ? -1 : 1
   out.flat = Math.max(0, Math.min(1, out.flat))
   out.gradientMid = Math.max(0.01, Math.min(0.99, out.gradientMid))
@@ -287,6 +313,18 @@ function rot(axis: "x" | "y" | "z", t: number): M4 {
   else (m[0] = c), (m[1] = s), (m[4] = -s), (m[5] = c)
   return m
 }
+function move(x: number, y: number, z: number): M4 {
+  const m = ident()
+  m[12] = x
+  m[13] = y
+  m[14] = z
+  return m
+}
+/** The map zoom that shows the same span of the world as globe zoom `z` does, at this latitude. */
+const flatZoom = (lat: number, z: number) => Math.max(1, 3.35 * Math.cos(lat * DEG) * z)
+/** How magnified a view is, in globe-zoom terms, for the map at zoom `fz` and latitude `lat`. */
+const mapMag = (lat: number, fz: number) => (0.298 * fz) / Math.cos(Math.min(80, Math.abs(lat)) * DEG)
+const wrap180 = (d: number) => ((((d + 180) % 360) + 360) % 360) - 180
 function scale(k: number): M4 {
   const m = ident()
   m[0] = m[5] = m[10] = k
@@ -394,14 +432,15 @@ const DOT_FRAG =
   PREC +
   `
   uniform vec3 uC1, uC2, uC3; uniform float uAngle, uMid;
-  varying float vA; varying vec2 vScreen; varying float vSeed;
+  varying float vA; varying vec2 vScreen; varying float vSeed; varying float vSoft;
   void main(){
     vec2 c = gl_PointCoord - 0.5;
-    if (dot(c, c) > 0.25 || vA < 0.01) discard;
+    float d2 = dot(c, c);
+    if (d2 > 0.25 || vA < 0.01) discard;
     float t = clamp(0.5 + 0.48 * dot(vScreen, vec2(cos(uAngle), sin(uAngle))), 0.0, 1.0);
     vec3 col = t < uMid ? mix(uC1, uC2, t / uMid) : mix(uC2, uC3, (t - uMid) / (1.0 - uMid));
     col = mix(col, vec3(1.0), 0.08 * vSeed);
-    gl_FragColor = vec4(col, clamp(vA, 0.0, 1.0));
+    gl_FragColor = vec4(col, clamp(vA, 0.0, 1.0) * mix(1.0, 1.0 - smoothstep(0.06, 0.25, d2), vSoft));
   }`
 const MESH_VERT = `
   attribute vec3 position; attribute vec3 normal;
@@ -421,35 +460,45 @@ const DOT_VERT =
   `
   attribute vec3 position; attribute vec2 aLL; attribute float aSeed; attribute float aSize; attribute float aKeep;
   uniform mat4 modelViewMatrix, projectionMatrix; uniform mat3 normalMatrix;
-  uniform float uTime, uPx, uSize, uDensity, uTwinkle, uHl, uIntensity, uBack, uVar; uniform vec2 uHlPos;
-  varying float vA; varying vec2 vScreen; varying float vSeed;` +
+  uniform float uTime, uPx, uSize, uDensity, uTwinkle, uHl, uIntensity, uBack, uVar, uHor, uHlK, uDetail, uLayer, uSzK, uDpr; uniform vec2 uHlPos; uniform vec4 uCap;
+  varying float vA; varying vec2 vScreen; varying float vSeed; varying float vSoft;` +
   MORPH +
   `
   void main(){
     if (aKeep > uDensity) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); gl_PointSize = 0.0; vA = 0.0; return; }
+    float cf = 1.0;
+    if (uDetail > 0.0) {
+      float e = smoothstep(uCap.w, mix(uCap.w, 1.0, 0.3), dot(position, uCap.xyz) / 1.002);
+      cf = uLayer > 0.5 ? uDetail * e : 1.0 - uDetail * e;
+      if (cf < 0.004) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); gl_PointSize = 0.0; vA = 0.0; return; }
+    }
     vec4 mv = mix(modelViewMatrix * vec4(position, 1.0), viewMatrix * vec4(flatPos(aLL, 0.0), 1.0), uMorph);
     vec3 n = normalize(normalMatrix * position);
-    n.z = mix(n.z, 1.0, uMorph);
-    vec2 nxy = mix(n.xy, mv.xy * 0.6, uMorph);
+    n.z = mix(n.z - uHor, 1.0, uMorph);
+    vec2 nxy = mix(n.xy, mv.xy * uHlK, uMorph);
     float light = smoothstep(0.12, 0.95, length(nxy - uHlPos));
     float shade = mix(1.0 - uHl, 1.0, light);
     float tw = 1.0 - uTwinkle + uTwinkle * (0.5 + 0.5 * sin(uTime * (0.8 + aSeed * 1.6) + aSeed * 40.0));
     float front = smoothstep(0.0, 0.18, n.z);
     float back = (1.0 - smoothstep(-0.06, 0.0, n.z)) * uBack * 0.4;
-    vA = (front * shade + back) * tw * uIntensity;
+    vA = (front * shade + back) * tw * uIntensity * cf;
     vA *= 1.0 - smoothstep(72.0, 79.0, abs(aLL.x)) * uMorph;
     vSeed = aSeed;
     gl_Position = projectionMatrix * mv;
     vScreen = gl_Position.xy / gl_Position.w;
     float s = max(0.08, 0.72 + (aSize - 0.72) * uVar);
-    gl_PointSize = s * uSize * uPx * (5.0 / -mv.z) * 1.15 * (n.z < 0.0 ? 0.8 : 1.0);
+    float ps = s * uSize * uPx * (5.0 / -mv.z) * 1.15 * (n.z < 0.0 ? 0.8 : 1.0) * uSzK;
+    vSoft = clamp((1.0 - uSize) * 4.0, 0.0, 1.0);
+    float lo = 1.8 * uDpr * vSoft;
+    if (ps < lo) { vA *= max(0.45, ps * ps / (lo * lo)); ps = lo; }
+    gl_PointSize = ps;
   }`
 const FLOAT_VERT =
   `
   attribute vec3 position; attribute vec2 aLL; attribute float aSeed; attribute float aSize; attribute float aKeep; attribute float aPhase;
   uniform mat4 modelViewMatrix, projectionMatrix; uniform mat3 normalMatrix;
-  uniform float uTime, uPx, uSize, uAmt, uH, uSpeed, uDrift, uOp, uVar;
-  varying float vA; varying vec2 vScreen; varying float vSeed;` +
+  uniform float uTime, uPx, uSize, uAmt, uH, uSpeed, uDrift, uOp, uVar, uHor, uSzK;
+  varying float vA; varying vec2 vScreen; varying float vSeed; varying float vSoft;` +
   MORPH +
   `
   void main(){
@@ -461,20 +510,21 @@ const FLOAT_VERT =
     vec4 fl = viewMatrix * vec4(flatPos(aLL, life * (uH * (0.5 + aSeed) + uDrift) * 0.5), 1.0);
     vec4 mv = mix(sph, fl, uMorph);
     vec3 n = normalize(normalMatrix * position);
-    float facing = mix(smoothstep(-0.35, 0.1, n.z), 1.0, uMorph);
+    float facing = mix(smoothstep(-0.35, 0.1, n.z - uHor), 1.0, uMorph);
     vA = sin(3.14159 * life) * facing * uOp;
+    vSoft = 0.0;
     vA *= 1.0 - smoothstep(72.0, 79.0, abs(aLL.x)) * uMorph;
     vSeed = aSeed;
     gl_Position = projectionMatrix * mv;
     vScreen = gl_Position.xy / gl_Position.w;
     float s = max(0.08, 0.8 + (aSize - 0.8) * uVar);
-    gl_PointSize = s * uSize * uPx * (5.0 / -mv.z) * 1.1 * (1.0 - 0.35 * life);
+    gl_PointSize = s * uSize * uPx * (5.0 / -mv.z) * 1.1 * (1.0 - 0.35 * life) * uSzK;
   }`
 const ARC_VERT = `
-  attribute vec3 position; attribute vec3 aFlat; attribute float aT;
-  uniform mat4 modelViewMatrix, projectionMatrix, viewMatrix; uniform float uMorph, uShift;
+  attribute vec3 position; attribute vec3 aFlat; attribute float aT; attribute vec3 aC; attribute vec3 aFC;
+  uniform mat4 modelViewMatrix, projectionMatrix, viewMatrix; uniform float uMorph, uShift, uThin;
   varying float vT, vX;
-  void main(){ vT = aT; vX = aFlat.x + uShift; vec4 mv = mix(modelViewMatrix*vec4(position,1.0), viewMatrix*vec4(vX,aFlat.yz,1.0), uMorph); gl_Position = projectionMatrix*mv; }`
+  void main(){ vT = aT; vec3 f = mix(aFC, aFlat, uThin); vX = f.x + uShift; vec4 mv = mix(modelViewMatrix*vec4(mix(aC, position, uThin),1.0), viewMatrix*vec4(vX,f.yz,1.0), uMorph); gl_Position = projectionMatrix*mv; }`
 const ARC_FRAG =
   PREC + `uniform vec3 uA; uniform vec3 uB; uniform float uOp, uStart, uEnd, uFeather, uMorph, uEdge; varying float vT, vX;
   void main(){ float a = smoothstep(uStart - uFeather, uStart, vT) * (1.0 - smoothstep(uEnd, uEnd + uFeather, vT));
@@ -483,11 +533,11 @@ const ARC_FRAG =
 const RING_VERT =
   `
   attribute vec3 position; attribute vec2 aLL; attribute float aS; attribute float aO;
-  uniform mat4 modelViewMatrix, projectionMatrix; uniform mat3 normalMatrix; uniform float uPx;
+  uniform mat4 modelViewMatrix, projectionMatrix; uniform mat3 normalMatrix; uniform float uPx, uHor;
   varying float vO;` +
   MORPH +
   `
-  void main(){ vO = aO; vec3 n = normalize(normalMatrix*position); vO *= mix(smoothstep(0.0,0.2,n.z), 1.0, uMorph);
+  void main(){ vO = aO; vec3 n = normalize(normalMatrix*position); vO *= mix(smoothstep(0.0,0.2,n.z - uHor), 1.0, uMorph);
     vec4 mv = mix(modelViewMatrix*vec4(position,1.0), viewMatrix*vec4(flatPos(aLL, 0.0), 1.0), uMorph);
     gl_Position = projectionMatrix*mv; gl_PointSize = aS * uPx * 26.0; }`
 const RING_FRAG =
@@ -626,6 +676,7 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
     if (typeof v === "number") gl!.uniform1f(loc, v)
     else if (v.length === 2) gl!.uniform2fv(loc, v as number[])
     else if (v.length === 3) gl!.uniform3fv(loc, v as number[])
+    else if (v.length === 4) gl!.uniform4fv(loc, v as number[])
     else if (v.length === 9) gl!.uniformMatrix3fv(loc, false, v as Float32Array)
     else gl!.uniformMatrix4fv(loc, false, v as Float32Array)
   }
@@ -661,23 +712,36 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
   let bodyGeo!: ReturnType<typeof sphere>
   let haloGeo!: ReturnType<typeof sphere>
 
-  const pts = landPoints(70000)
-  const n = pts.length / 2
-  const dPos = new Float32Array(n * 3)
-  const dLL = new Float32Array(n * 2)
-  const dSeed = new Float32Array(n)
-  const dSize = new Float32Array(n)
-  const dKeep = new Float32Array(n)
-  for (let i = 0; i < n; i++) {
-    const lat = pts[i * 2]
-    const lon = pts[i * 2 + 1]
-    dPos.set(ll2v(lat, lon, R * 1.002), i * 3)
-    dLL.set([lat, lon], i * 2)
-    dSeed[i] = Math.random()
-    dKeep[i] = Math.random()
-    dSize[i] = 0.45 + Math.pow(Math.random(), 2) * 0.55
+  /** One set of land dots: the arrays live on the CPU so they can be uploaded again after a lost context. */
+  type Layer = { n: number; arrs: Float32Array[]; attrs?: Attrs }
+  function makeLayer(pts: number[]): Layer {
+    const n = pts.length / 2
+    const pos = new Float32Array(n * 3)
+    const ll = new Float32Array(n * 2)
+    const seed = new Float32Array(n)
+    const size = new Float32Array(n)
+    const keep = new Float32Array(n)
+    for (let i = 0; i < n; i++) {
+      const lat = pts[i * 2]
+      const lon = pts[i * 2 + 1]
+      pos.set(ll2v(lat, lon, R * 1.002), i * 3)
+      ll.set([lat, lon], i * 2)
+      seed[i] = Math.random()
+      keep[i] = Math.random()
+      size[i] = 0.45 + Math.pow(Math.random(), 2) * 0.55
+    }
+    return { n, arrs: [pos, ll, seed, size, keep] }
   }
-  let dots!: Attrs
+  const upload = (L: Layer) => {
+    const [pos, ll, seed, size, keep] = L.arrs
+    L.attrs = { position: [buffer(pos), 3], aLL: [buffer(ll), 2], aSeed: [buffer(seed), 1], aSize: [buffer(size), 1], aKeep: [buffer(keep), 1] }
+  }
+  const pts = landPoints(70000)
+  const baseLayer = makeLayer(pts)
+  const n = baseLayer.n
+  /** More dots than the default set, built the first time density goes above 1. */
+  const MAX_DENSITY = 5
+  let extraLayer: Layer | null = null
 
   const FN = 6000
   const fPos = new Float32Array(FN * 3)
@@ -721,6 +785,7 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
   /** Tube vertices around a curve; `side` is a fixed vector across the curve's plane. */
   function tube(curve: (t: number) => number[], side: number[], thick: number) {
     const out: number[] = []
+    const ctr: number[] = []
     for (let i = 0; i <= SEG; i++) {
       const t = i / SEG
       const p = curve(t)
@@ -732,9 +797,10 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
         const c = Math.cos(a) * thick
         const s = Math.sin(a) * thick
         out.push(p[0] + nrm[0] * c + bin[0] * s, p[1] + nrm[1] * c + bin[1] * s, p[2] + nrm[2] * c + bin[2] * s)
+        ctr.push(p[0], p[1], p[2])
       }
     }
-    return out
+    return { v: out, c: ctr }
   }
   const tubeIdx: number[] = []
   for (let i = 0; i < SEG; i++)
@@ -748,7 +814,7 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
   let tubeIdxBuf!: WebGLBuffer
   let tubeTBuf!: WebGLBuffer
 
-  type Arc = { pos: WebGLBuffer; flat: WebGLBuffer; vb: number[]; pill: HTMLDivElement; idx: number; shift: number }
+  type Arc = { pos: WebGLBuffer; flat: WebGLBuffer; ctr: WebGLBuffer; fctr: WebGLBuffer; vb: number[]; pill: HTMLDivElement; idx: number; shift: number }
   let arcs: Arc[] = []
   let arcKey = ""
   let ring: { pos: WebGLBuffer; ll: WebGLBuffer; s: WebGLBuffer; o: WebGLBuffer; sArr: Float32Array; oArr: Float32Array; count: number } | null =
@@ -764,12 +830,32 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
     for (const a of arcs) {
       freeBuf(a.pos)
       freeBuf(a.flat)
+      freeBuf(a.ctr)
+      freeBuf(a.fctr)
       a.pill.remove()
     }
     arcs = []
     if (ring) [ring.pos, ring.ll, ring.s, ring.o].forEach(freeBuf)
     ring = null
   }
+  // ---------- focus state ----------
+  type Tgt = { lat: number; lon: number; z: number; fz: number }
+  type Detail = { n: number; attrs: Attrs; bufs: WebGLBuffer[]; cap: number[] }
+  let fp: Tgt = { lat: 0, lon: 0, z: 1, fz: 1 }
+  let ft: Tgt = { lat: 0, lon: 0, z: 1, fz: 1 }
+  const fCur: Tgt = { lat: 0, lon: 0, z: 1, fz: 1 }
+  let fAmt = 0
+  let fAmtFrom = 0
+  let fAmtTo = 0
+  let fStart = 0
+  let fk = 1
+  let focusKey = "null"
+  let det: Detail | null = null
+  let detKey = ""
+  let wantDet: Tgt | null = null
+  let wantDetKey = ""
+  let detAmt = 0
+
   /** Compile the programs and upload every buffer. Runs once, and again after a lost context comes back. */
   function initGL(): boolean {
     programs.length = 0
@@ -789,13 +875,10 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
     } catch {
       return false
     }
-    dots = {
-      position: [buffer(dPos), 3],
-      aLL: [buffer(dLL), 2],
-      aSeed: [buffer(dSeed), 1],
-      aSize: [buffer(dSize), 1],
-      aKeep: [buffer(dKeep), 1],
-    }
+    upload(baseLayer)
+    if (extraLayer) upload(extraLayer)
+    det = null
+    detKey = ""
     floaters = {
       position: [buffer(fPos), 3],
       aLL: [buffer(fLL), 2],
@@ -860,7 +943,7 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
       pill.className = "pg-pill"
       pill.textContent = r.label ?? ""
       labelLayer.appendChild(pill)
-      return { pos: buffer(new Float32Array(sph)), flat: buffer(new Float32Array(flat)), vb, pill, idx: i, shift }
+      return { pos: buffer(new Float32Array(sph.v)), flat: buffer(new Float32Array(flat.v)), ctr: buffer(new Float32Array(sph.c)), fctr: buffer(new Float32Array(flat.c)), vb, pill, idx: i, shift }
     })
     if (!count) return
     const sArr = new Float32Array(count * 2)
@@ -900,6 +983,7 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
   let destroyed = false
   let lost = false
   let dirty = true
+  let busy = false
 
   let dragging = false
   let dragId = -1
@@ -907,7 +991,7 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
   let vel = 0
   let userRot = 0
   const onDown = (e: PointerEvent) => {
-    if (!o.draggable || dragging || (e.pointerType === "mouse" && e.button !== 0)) return
+    if (!o.draggable || dragging || fAmtTo > 0 || (e.pointerType === "mouse" && e.button !== 0)) return
     dragging = true
     dragId = e.pointerId
     lastX = e.clientX
@@ -981,6 +1065,68 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
     canvas.style.touchAction = o.draggable ? "pan-y" : "auto"
   }
 
+  // ---------- focus ----------
+  function freeDetail() {
+    if (det) det.bufs.forEach(freeBuf)
+    det = null
+  }
+  /** A denser set of dots for the area in view, so a close-up is not sparse. */
+  function buildDetail(t: Tgt, df: number): Detail {
+    const g = landMask()
+    const asp = Math.max(1, W / H)
+    const zMap = mapMag(t.lat, t.fz)
+    const rad = Math.min(80, (61 / Math.min(t.z, zMap)) * Math.hypot(asp, 1) * 1.1 + 4)
+    // Spacing in degrees; capped so the grid never exceeds about 150k candidates (build time, memory).
+    const step = Math.max(0.77 / Math.pow(Math.max(t.z, zMap), 0.85) / Math.sqrt(df), Math.sqrt((2 * Math.PI * (1 - Math.cos(rad * DEG))) / 150000) / DEG)
+    const cosR = Math.cos(rad * DEG)
+    const c = ll2v(t.lat, t.lon, 1)
+    const lat0 = t.lat
+    const dl = Math.abs(lat0) + rad >= 89 ? 180 : Math.asin(Math.min(1, Math.sin(rad * DEG) / Math.cos(lat0 * DEG))) / DEG
+    const out: number[] = []
+    let row = 0
+    for (let la = Math.max(-89.5, Math.ceil((lat0 - rad) / step) * step); la <= Math.min(89.5, lat0 + rad); la += step, row++) {
+      const ls = step / Math.max(0.05, Math.cos(la * DEG))
+      for (let lo = t.lon - dl + (row & 1) * ls * 0.5; lo <= t.lon + dl; lo += ls) {
+        const lat = la + (Math.random() - 0.5) * step * 0.6
+        const lon = wrap180(lo + (Math.random() - 0.5) * ls * 0.6)
+        const v = ll2v(lat, lon, 1)
+        if (v[0] * c[0] + v[1] * c[1] + v[2] * c[2] < cosR) continue
+        if (isLand(g, lat, lon)) out.push(lat, lon)
+      }
+    }
+    const L = makeLayer(out)
+    upload(L)
+    return { n: L.n, bufs: buffers.slice(-5), attrs: L.attrs!, cap: [c[0], c[1], c[2], cosR] }
+  }
+  function applyFocus(snap = false) {
+    const f = o.focus
+    focusKey = JSON.stringify(f ?? null)
+    let tg: Tgt | null = null
+    if (f && f !== "world") {
+      if (typeof f === "string") {
+        const r = REGIONS[f]
+        tg = { lat: r.lat, lon: r.lon, z: r.zoom, fz: r.flat }
+      } else {
+        const z = Math.max(1, Math.min(16, f.zoom))
+        tg = { lat: f.lat, lon: f.lon, z, fz: flatZoom(f.lat, z) }
+      }
+    }
+    ft = tg ? { ...tg } : { ...fCur }
+    // From the free globe there is nowhere to travel from: only the zoom and turn blend in.
+    fp = tg && fAmt < 0.001 ? { ...ft } : { ...fCur }
+    fAmtFrom = fAmt
+    fAmtTo = tg ? 1 : 0
+    fStart = performance.now()
+    fk = 0
+    wantDet = tg && (tg.z >= 1.2 || tg.fz >= 1.8) ? tg : null
+    wantDetKey = wantDet ? [wantDet.lat, wantDet.lon, wantDet.z].join() : ""
+    if (snap) {
+      fk = 1
+      fAmt = fAmtTo
+      Object.assign(fCur, ft)
+    }
+  }
+
   // ---------- frame ----------
   const view = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, -5, 1])
   let last = performance.now()
@@ -1007,22 +1153,56 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
     if (dpr !== Math.min(window.devicePixelRatio || 1, o.maxPixelRatio)) resize()
     const still = reduced()
     // Reduced motion with nothing moving: keep the last frame instead of redrawing it.
-    if (still && !dirty && !dragging && morph === morphTo && Math.abs(vel) < 1e-4) return
+    if (still && !dirty && !busy && !dragging && morph === morphTo && Math.abs(vel) < 1e-4) return
     dirty = false
     t += dt
     vel *= Math.pow(0.94, dt * 60)
     if (!dragging) userRot += vel
-    if (o.rotation.auto && !still) spin += dt * o.rotation.speed * o.rotation.direction
+    if (o.rotation.auto && !still) spin += dt * o.rotation.speed * o.rotation.direction * (1 - fAmt)
     if (o.arcs) arcT += dt * o.arcs.speed
     if (morph !== morphTo) {
       const k = o.flatTransition > 0 && !still ? Math.min(1, (now - morphStart) / o.flatTransition) : 1
       morph = morphFrom + (morphTo - morphFrom) * ease(k)
     }
 
-    const tiltM = mul(rot("x", o.rotation.tilt), rot("z", -0.12))
-    const rotY = (-90 - o.rotation.startLongitude) * DEG + spin + userRot
-    const model = mul(tiltM, rot("y", rotY))
+    // Focus: blend from the free camera to the target (or back), then derive both cameras.
+    if (fk < 1) fk = o.focusTransition! <= 0 || still ? 1 : Math.min(1, (now - fStart) / o.focusTransition!)
+    const fe = ease(fk)
+    fAmt = fAmtFrom + (fAmtTo - fAmtFrom) * fe
+    fCur.lat = fp.lat + (ft.lat - fp.lat) * fe
+    fCur.lon = fp.lon + wrap180(ft.lon - fp.lon) * fe
+    fCur.z = Math.exp(Math.log(fp.z) + (Math.log(ft.z) - Math.log(fp.z)) * fe)
+    fCur.fz = Math.exp(Math.log(fp.fz) + (Math.log(ft.fz) - Math.log(fp.fz)) * fe)
+    const zoom = fAmt > 0 ? Math.exp(Math.log(fCur.z) * fAmt) : 1
+    const dolly = 1 + 4 / zoom
+    view[14] = -dolly
+    const yawFree = (-90 - o.rotation.startLongitude) * DEG + spin + userRot
+    const yaw = yawFree + wrap180(((-90 - fCur.lon) * DEG - yawFree) / DEG) * DEG * fAmt
+    const tilt = o.rotation.tilt + (fCur.lat * DEG - o.rotation.tilt) * fAmt
+    const tiltM = mul(rot("x", tilt), rot("z", -0.12 * (1 - fAmt)))
+    const model = mul(tiltM, rot("y", yaw))
     const mv = mul(view, model)
+    const zf = Math.exp(Math.log(fCur.fz) * fAmt)
+    const hor = Math.max(0, 1 / dolly - 0.2)
+    const zMapNow = mapMag(fCur.lat, zf)
+    const szk = Math.pow(zoom, -0.7) * (1 - morph) + (Math.pow(zMapNow, 0.3) / zf) * morph
+
+    // The dense layer for the area in view: swap it out, rebuild, swap it in.
+    const fast = still ? 1e3 : 1
+    const detF = Math.ceil(Math.max(1, Math.min(MAX_DENSITY, o.dots.density)))
+    const wantKey = wantDet ? wantDetKey + "," + detF : ""
+    if (detKey !== wantKey) {
+      detAmt = Math.max(0, detAmt - (dt * fast) / 0.25)
+      if (detAmt <= 0) {
+        freeDetail()
+        detKey = wantKey
+        if (wantDet) det = buildDetail(wantDet, detF)
+      }
+    } else if (det) detAmt = Math.min(1, detAmt + (dt * fast) / 0.5)
+    const detEff = det ? detAmt * detAmt * (3 - 2 * detAmt) * Math.min(1, Math.max(0, ((zoom - 1.05) / 0.4) * (1 - morph) + ((zf - 1.3) / 0.8) * morph)) : 0
+    busy = fk < 1 || detKey !== wantKey || (!!det && detAmt < 1)
+    const pan = flatXY(fCur.lat, fCur.lon, o.flatCentre)
+    const viewF: M4 = fAmt > 0 ? mul(move(0, 0, -5 / zf), move(-pan[0] * fAmt, -pan[1] * fAmt, 0)) : view
 
     gl!.viewport(0, 0, canvas.width, canvas.height)
     gl!.clearColor(0, 0, 0, 0)
@@ -1036,7 +1216,7 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
       set(pr, "modelViewMatrix", m)
       set(pr, "projectionMatrix", proj)
       set(pr, "normalMatrix", normal3(m))
-      set(pr, "viewMatrix", view)
+      set(pr, "viewMatrix", viewF)
       set(pr, "uMorph", morph)
       set(pr, "uCentre", o.flatCentre)
       set(pr, "uFlatK", FLAT_K)
@@ -1090,6 +1270,7 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
       set(pr, "uA", rgb(o.arcs.colors[0]))
       set(pr, "uB", rgb(o.arcs.colors[1]))
       set(pr, "uEdge", FLAT_W / 2)
+      set(pr, "uThin", Math.pow(zoom, -0.7) * (1 - morph) + Math.pow(zf, -0.7) * morph)
       gl!.disable(gl!.CULL_FACE)
       gl!.bindBuffer(gl!.ELEMENT_ARRAY_BUFFER, tubeIdxBuf)
       const indices = SEG * RAD * 6
@@ -1110,7 +1291,7 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
           set(pr, "uStart", start * (1 + ARC_FEATHER))
           set(pr, "uEnd", end * (1 + ARC_FEATHER) - ARC_FEATHER)
           set(pr, "uFeather", ARC_FEATHER)
-          bindAttribs(pr, { position: [a.pos, 3], aFlat: [a.flat, 3], aT: [tubeTBuf, 1] })
+          bindAttribs(pr, { position: [a.pos, 3], aFlat: [a.flat, 3], aT: [tubeTBuf, 1], aC: [a.ctr, 3], aFC: [a.fctr, 3] })
           set(pr, "uShift", 0)
           set(pr, "uOp", o.arcs.opacity)
           gl!.drawElements(gl!.TRIANGLES, indices, gl!.UNSIGNED_SHORT, 0)
@@ -1160,15 +1341,39 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
       set(pr, "uTime", still ? 0 : t)
       set(pr, "uPx", px * 2.2)
       set(pr, "uSize", o.dots.size)
-      set(pr, "uDensity", o.dots.density)
+      const dens = Math.min(MAX_DENSITY, Math.max(0, o.dots.density))
+      if (dens > 1 && !extraLayer) {
+        extraLayer = makeLayer(landPoints(70000 * (MAX_DENSITY - 1)))
+        upload(extraLayer)
+      }
+      set(pr, "uDpr", dpr)
       set(pr, "uTwinkle", o.dots.twinkle)
       set(pr, "uHl", o.dots.highlight)
       set(pr, "uHlPos", [0.42, -0.05])
       set(pr, "uIntensity", o.dots.intensity)
       set(pr, "uBack", o.dots.farSide)
       set(pr, "uVar", o.dots.sizeVariation)
-      bindAttribs(pr, dots)
+      set(pr, "uHor", hor)
+      set(pr, "uHlK", 0.6 * zf)
+      set(pr, "uDetail", detEff)
+      set(pr, "uSzK", 1 + (szk - 1) * detEff)
+      if (det) set(pr, "uCap", det.cap)
+      set(pr, "uLayer", 0)
+      set(pr, "uDensity", Math.min(1, dens))
+      bindAttribs(pr, baseLayer.attrs!)
       gl!.drawArrays(gl!.POINTS, 0, n)
+      if (extraLayer && dens > 1) {
+        set(pr, "uDensity", (dens - 1) / (MAX_DENSITY - 1))
+        bindAttribs(pr, extraLayer.attrs!)
+        gl!.drawArrays(gl!.POINTS, 0, extraLayer.n)
+      }
+      if (det && detEff > 0) {
+        set(pr, "uDensity", dens / detF)
+        set(pr, "uLayer", 1)
+        set(pr, "uSzK", szk)
+        bindAttribs(pr, det.attrs)
+        gl!.drawArrays(gl!.POINTS, 0, det.n)
+      }
     }
 
     // Floating particles
@@ -1186,6 +1391,8 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
       set(pr, "uDrift", o.particles.drift)
       set(pr, "uOp", o.particles.opacity * Math.min(1, o.dots.intensity))
       set(pr, "uVar", o.dots.sizeVariation)
+      set(pr, "uHor", hor)
+      set(pr, "uSzK", Math.pow(zoom, -0.85) * (1 - morph) + (1 / zf) * morph)
       bindAttribs(pr, floaters)
       gl!.drawArrays(gl!.POINTS, 0, FN)
       gl!.disable(gl!.DEPTH_TEST)
@@ -1196,6 +1403,7 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
       const pr = progs.ring
       common(pr, mv)
       set(pr, "uPx", px * (o.arcs.ringSize ?? 1))
+      set(pr, "uHor", hor)
       set(pr, "uColor", rgb(o.arcs.colors[1]))
       gl!.bindBuffer(gl!.ARRAY_BUFFER, ring.s)
       gl!.bufferSubData(gl!.ARRAY_BUFFER, 0, ring.sArr)
@@ -1232,6 +1440,7 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
   reduceQuery.addEventListener?.("change", onMotion)
 
   applyStatic()
+  if (o.focus) applyFocus(true)
   wake()
 
   return {
@@ -1252,6 +1461,7 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
         morphTo = o.flat
         morphStart = performance.now()
       }
+      if (JSON.stringify(o.focus ?? null) !== focusKey) applyFocus()
       applyStatic()
       resize()
       wake()
@@ -1275,6 +1485,7 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
       canvas.removeEventListener("webglcontextrestored", onRestored)
       if (!lost) {
         clearArcs()
+        freeDetail()
         buffers.forEach((b) => gl.deleteBuffer(b))
         programs.forEach((p) => gl.deleteProgram(p))
       }
