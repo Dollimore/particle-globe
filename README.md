@@ -43,7 +43,7 @@ Four ways in. All of them use the same core, so you pay for it once.
 |---|---|---|
 | `particle-globe` | The function above. Works anywhere | core |
 | `particle-globe/element` | A `<particle-globe>` custom element | 1.4 KB |
-| `particle-globe/react` | A React 19 component, Next.js App Router ready | 0.6 KB |
+| `particle-globe/react` | A React 19 component, Next.js App Router ready | 0.5 KB |
 | `particle-globe/astro` | An Astro component that wraps the element | none, it is a source file |
 
 ### Vite or plain HTML
@@ -190,9 +190,9 @@ The defaults are exported as `DEFAULT_OPTIONS` and `DEFAULT_ROUTES`, and the reg
 
 | Entry | Raw | Gzip | Brotli |
 |---|---|---|---|
-| `particle-globe` (core, with the land data) | 31.0 KB | 14.3 KB | 12.7 KB |
-| `particle-globe/element` | 3.2 KB | 1.4 KB | 1.2 KB |
-| `particle-globe/react` | 1.0 KB | 0.6 KB | 0.5 KB |
+| `particle-globe` (core, with the land data) | 30.8 KB | 14.2 KB | 12.6 KB |
+| `particle-globe/element` | 3.1 KB | 1.4 KB | 1.2 KB |
+| `particle-globe/react` | 1.0 KB | 0.5 KB | 0.5 KB |
 
 The wrappers import the core, so a page that uses one pays for the core once. Run `npm run size` to measure it.
 

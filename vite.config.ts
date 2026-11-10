@@ -92,7 +92,7 @@ function minifyChunk(): Plugin {
         if (f.type !== "chunk") continue
         const r = await minify(f.code, {
           module: true,
-          ecma: 2019,
+          ecma: 2020,
           compress: { passes: 3, pure_getters: true },
           mangle: { toplevel: true },
           format: { comments: false },
@@ -106,7 +106,7 @@ function minifyChunk(): Plugin {
 export default defineConfig({
   plugins: [shaderMinify(), minifyChunk()],
   build: {
-    target: "es2019",
+    target: "es2020",
     minify: false,
     sourcemap: false,
     emptyOutDir: true,
