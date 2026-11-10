@@ -14,6 +14,17 @@ import { LAND_DATA, LAND_H, LAND_W } from "./land-mask"
 
 export type LatLon = [number, number]
 
+/** How an icon is drawn: a stroked ring with a bright core, or one solid dot. */
+export type IconStyle = "ring" | "solid"
+
+/** A place a marker appears at. */
+export interface MarkerPlace {
+  lat: number
+  lon: number
+  /** Text shown beside the marker. */
+  label?: string
+}
+
 export interface ArcRoute {
   from: LatLon
   to: LatLon
@@ -89,11 +100,37 @@ export interface GlobeOptions {
         height: number
         /** Animation speed multiplier. */
         speed: number
-        /** Rings at each end. */
-        rings: boolean
-        /** Size multiplier for the endpoint rings. 1 is the default size. */
-        ringSize: number
+        /** The icons at each end of an arc. */
+        icons: {
+          /** Show them. */
+          show: boolean
+          /** Size multiplier. 1 is the default size. */
+          size: number
+          /** "ring" is a stroked ring with a bright core; "solid" is one filled dot in the arc's end colour. */
+          style: IconStyle
+        }
         /** Show route labels at the destination. */
+        labels: boolean
+      }
+  /**
+   * Markers: places that appear one at a time (or a few, staggered) with a pulse and a label, hold, then fade out,
+   * cycling through the list. Off by default; works on the globe and the flat map, alone or with arcs.
+   */
+  markers:
+    | false
+    | {
+        places: MarkerPlace[]
+        /** Icon colour. */
+        color: string
+        /** Same two looks as the arc icons. */
+        style: IconStyle
+        /** Size multiplier. 1 is the default size. */
+        size: number
+        /** Pace of the cycle. 1 shows each marker for about 4.6 seconds. */
+        speed: number
+        /** How many markers are on screen at once, 1 to 12. */
+        count: number
+        /** Show each place's label. */
         labels: boolean
       }
   rotation: {
@@ -148,10 +185,12 @@ export const REGIONS: Record<RegionName, { lat: number; lon: number; zoom: numbe
 }
 
 type Group<T> = false | Partial<Exclude<T, false>>
+type ArcsOn = Exclude<GlobeOptions["arcs"], false>
+type ArcsInput = Partial<Omit<ArcsOn, "icons">> & { icons?: Partial<ArcsOn["icons"]> }
 
 /** Anything you pass is merged over the defaults; groups take partial objects. */
 export type GlobeInput = Partial<
-  Omit<GlobeOptions, "dots" | "rotation" | "rim" | "globe" | "particles" | "atmosphere" | "arcs">
+  Omit<GlobeOptions, "dots" | "rotation" | "rim" | "globe" | "particles" | "atmosphere" | "arcs" | "markers">
 > & {
   dots?: Partial<GlobeOptions["dots"]>
   rotation?: Partial<GlobeOptions["rotation"]>
@@ -159,7 +198,8 @@ export type GlobeInput = Partial<
   globe?: Partial<GlobeOptions["globe"]>
   particles?: Group<GlobeOptions["particles"]>
   atmosphere?: Group<GlobeOptions["atmosphere"]>
-  arcs?: Group<GlobeOptions["arcs"]>
+  arcs?: false | ArcsInput
+  markers?: Group<GlobeOptions["markers"]>
 }
 
 export interface ParticleGlobe {
@@ -196,6 +236,35 @@ export const DEFAULT_ROUTES: ArcRoute[] = [
   { from: [-33.87, 151.21], to: [-36.85, 174.76] },
 ]
 
+/** Real cities spread over the world, in an order where neighbours in the list are far apart. */
+export const DEFAULT_PLACES: MarkerPlace[] = [
+  { lat: 40.71, lon: -74.01, label: "New York" },
+  { lat: 35.68, lon: 139.69, label: "Tokyo" },
+  { lat: 51.51, lon: -0.13, label: "London" },
+  { lat: -33.87, lon: 151.21, label: "Sydney" },
+  { lat: -23.55, lon: -46.63, label: "Sao Paulo" },
+  { lat: 1.35, lon: 103.82, label: "Singapore" },
+  { lat: 6.52, lon: 3.38, label: "Lagos" },
+  { lat: 37.77, lon: -122.42, label: "San Francisco" },
+  { lat: 25.2, lon: 55.27, label: "Dubai" },
+  { lat: -26.2, lon: 28.05, label: "Johannesburg" },
+  { lat: 19.43, lon: -99.13, label: "Mexico City" },
+  { lat: 28.61, lon: 77.21, label: "Delhi" },
+  { lat: 48.86, lon: 2.35, label: "Paris" },
+  { lat: 37.57, lon: 126.98, label: "Seoul" },
+]
+
+/** What `markers` starts from when switched on. */
+export const DEFAULT_MARKERS: Exclude<GlobeOptions["markers"], false> = {
+  places: DEFAULT_PLACES,
+  color: "#fa8c5c",
+  style: "ring",
+  size: 1,
+  speed: 1,
+  count: 2,
+  labels: true,
+}
+
 export const DEFAULT_OPTIONS: GlobeOptions = {
   colors: ["#6b54f5", "#db61db", "#eb4d54"],
   gradientAngle: 57,
@@ -213,10 +282,10 @@ export const DEFAULT_OPTIONS: GlobeOptions = {
     thickness: 0.0042,
     height: 0.42,
     speed: 1,
-    rings: true,
-    ringSize: 1,
+    icons: { show: true, size: 1, style: "ring" },
     labels: false,
   },
+  markers: false,
   rotation: { auto: true, speed: 0.035, direction: 1, startLongitude: -55, tilt: 0.32 },
   flat: 0,
   flatCentre: 10,
@@ -234,6 +303,7 @@ const GROUP_DEFAULTS = {
   particles: DEFAULT_OPTIONS.particles as Exclude<GlobeOptions["particles"], false>,
   atmosphere: { color: "#9e94ff", strength: 0.16, size: 1.12 },
   arcs: DEFAULT_OPTIONS.arcs as Exclude<GlobeOptions["arcs"], false>,
+  markers: DEFAULT_MARKERS,
 }
 
 function merge(base: GlobeOptions, input: GlobeInput): GlobeOptions {
@@ -243,10 +313,13 @@ function merge(base: GlobeOptions, input: GlobeInput): GlobeOptions {
   out.rotation = { ...base.rotation, ...inp.rotation }
   out.rim = { ...base.rim, ...inp.rim }
   out.globe = { ...base.globe, ...inp.globe }
-  for (const k of ["particles", "atmosphere", "arcs"] as const) {
+  for (const k of ["particles", "atmosphere", "arcs", "markers"] as const) {
     const v = (inp as unknown as Record<string, unknown>)[k]
     if (v === undefined) continue
-    ;(out as unknown as Record<string, unknown>)[k] = v && typeof v === "object" ? { ...(base[k] || GROUP_DEFAULTS[k]), ...(v as object) } : false
+    const g = out as unknown as Record<string, any>
+    g[k] = v && typeof v === "object" ? { ...(base[k] || GROUP_DEFAULTS[k]), ...(v as object) } : false
+    // The arc icons are a nested group: what you pass is merged over the icons in effect.
+    if (k === "arcs" && g[k]) g[k].icons = { ...(base.arcs || GROUP_DEFAULTS.arcs).icons, ...((v as any).icons || {}) }
   }
   return clean(out, base)
 }
@@ -260,7 +333,7 @@ function fix(v: any, d: any): any {
   if (typeof d === "string") return typeof v === "string" && (d[0] !== "#" || parseColour(v)) ? v : d
   if (Array.isArray(d)) return Array.isArray(v) && v.length >= d.length ? d.map((x, i) => fix(v[i], x)) : d
   const r: any = {}
-  for (const k in d) r[k] = k === "routes" ? v && v[k] : fix(v && v[k], d[k])
+  for (const k in d) r[k] = k === "routes" || k === "places" ? v && v[k] : fix(v && v[k], d[k])
   return r
 }
 /** Bad values (NaN, wrong type, unparseable colour) fall back to what was in effect before. */
@@ -271,7 +344,7 @@ function clean(o: GlobeOptions, base: GlobeOptions): GlobeOptions {
     if (k === "onReady" || k === "focus") continue
     const d = b[k]
     const v = (o as any)[k]
-    if (k === "particles" || k === "atmosphere" || k === "arcs") out[k] = v === false ? false : fix(v, d || (GROUP_DEFAULTS as any)[k])
+    if (k === "particles" || k === "atmosphere" || k === "arcs" || k === "markers") out[k] = v === false ? false : fix(v, d || (GROUP_DEFAULTS as any)[k])
     else out[k] = fix(v, d)
   }
   if (typeof o.onReady === "function") out.onReady = o.onReady
@@ -281,6 +354,22 @@ function clean(o: GlobeOptions, base: GlobeOptions): GlobeOptions {
   out.flat = Math.max(0, Math.min(1, out.flat))
   out.gradientMid = Math.max(0.01, Math.min(0.99, out.gradientMid))
   out.maxPixelRatio = Math.max(0.25, out.maxPixelRatio)
+  const styleOf = (v: unknown, prev: IconStyle): IconStyle => (v === "ring" || v === "solid" ? v : prev)
+  if (out.arcs) {
+    out.arcs.icons.style = styleOf((o.arcs as any)?.icons?.style, base.arcs ? base.arcs.icons.style : "ring")
+    out.arcs.icons.size = Math.max(0.1, out.arcs.icons.size)
+  }
+  if (out.markers) {
+    const m = out.markers
+    m.style = styleOf((o.markers as any)?.style, base.markers ? base.markers.style : "ring")
+    m.size = Math.max(0.1, m.size)
+    m.speed = Math.max(0.1, m.speed)
+    m.count = Math.max(1, Math.min(12, Math.round(m.count)))
+    const ps = (o.markers as any).places as unknown
+    m.places = (Array.isArray(ps) ? ps : [])
+      .filter((p: any) => p && isNum(p.lat) && isNum(p.lon) && Math.abs(p.lat) <= 90 && Math.abs(p.lon) <= 180)
+      .map((p: MarkerPlace) => ({ lat: p.lat, lon: p.lon, label: typeof p.label === "string" ? p.label : undefined }))
+  }
   if (out.arcs) {
     const rs = (o.arcs && (o.arcs as any).routes) as unknown
     out.arcs.routes = (Array.isArray(rs) ? rs : []).filter((r: any) => r && isLL(r.from) && isLL(r.to)).map((r: ArcRoute) => ({
@@ -542,17 +631,22 @@ const RING_VERT =
     gl_Position = projectionMatrix*mv; gl_PointSize = aS * uPx * 26.0; }`
 const RING_FRAG =
   PREC +
-  `uniform vec3 uColor; varying float vO;
+  `uniform vec3 uColor; uniform float uMode; varying float vO;
   void main(){ float r = length(gl_PointCoord - 0.5) * 2.0; if (r > 1.0) discard;
     float glow = (1.0 - smoothstep(0.35, 1.0, r)) * 0.35;
     float ring = smoothstep(0.30, 0.36, r) * (1.0 - smoothstep(0.46, 0.52, r));
     float core = 1.0 - smoothstep(0.26, 0.31, r);
-    gl_FragColor = vec4(mix(uColor, vec3(1.0), core), max(max(ring, core), glow) * vO); }`
+    if (uMode > 0.5) {
+      float disc = 1.0 - smoothstep(0.38, 0.44, r);
+      float thin = smoothstep(0.40, 0.46, r) * (1.0 - smoothstep(0.48, 0.5, r));
+      gl_FragColor = vec4(uColor, (uMode > 1.5 ? thin : max(disc, glow)) * vO);
+    } else gl_FragColor = vec4(mix(uColor, vec3(1.0), core), max(max(ring, core), glow) * vO); }`
 
 const LABEL_CSS = `
 .pg-labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}
 .pg-pill{position:absolute;transform:translate(-50%,-140%);padding:3px 8px;border-radius:999px;background:rgba(17,24,39,.82);color:#fff;font:600 10px/1.4 ui-monospace,Menlo,monospace;letter-spacing:.06em;white-space:nowrap;opacity:0;transition:opacity .3s}
-.pg-pill.on{opacity:1}`
+.pg-pill.on{opacity:1}
+.pg-mk{transition:none;transform:translate(0,-50%)}`
 
 let pixelCtx: CanvasRenderingContext2D | null | undefined
 const colourCache = new Map<string, [number, number, number]>()
@@ -817,8 +911,30 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
   type Arc = { pos: WebGLBuffer; flat: WebGLBuffer; ctr: WebGLBuffer; fctr: WebGLBuffer; vb: number[]; pill: HTMLDivElement; idx: number; shift: number }
   let arcs: Arc[] = []
   let arcKey = ""
-  let ring: { pos: WebGLBuffer; ll: WebGLBuffer; s: WebGLBuffer; o: WebGLBuffer; sArr: Float32Array; oArr: Float32Array; count: number } | null =
-    null
+  type Rings = { pos: WebGLBuffer; ll: WebGLBuffer; s: WebGLBuffer; o: WebGLBuffer; sArr: Float32Array; oArr: Float32Array; count: number }
+  let ring: Rings | null = null
+  /** Marker state: the icons and pulses share the ring program; labels are DOM pills in the label layer. */
+  type Markers = {
+    rings: Rings
+    pills: HTMLDivElement[]
+    /** Unit vector and flat-map position of each place. */
+    vec: number[][]
+    flat: number[][]
+    /** Seconds each marker has been showing (at speed 1); -1 when it is not. */
+    age: number[]
+    /** Label width in pixels (measured once), the side it sits on, and its eased opacity. */
+    w: number[]
+    side: number[]
+    lo: number[]
+    /** Screen position and visibility from the last frame. */
+    sx: number[]
+    sy: number[]
+    vis: number[]
+    cursor: number
+    gap: number
+  }
+  let marks: Markers | null = null
+  let markKey = ""
   const freeBuf = (b: WebGLBuffer) => {
     gl!.deleteBuffer(b)
     const i = buffers.indexOf(b)
@@ -837,6 +953,13 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
     arcs = []
     if (ring) [ring.pos, ring.ll, ring.s, ring.o].forEach(freeBuf)
     ring = null
+  }
+  function clearMarkers() {
+    if (!marks) return
+    const r = marks.rings
+    ;[r.pos, r.ll, r.s, r.o].forEach(freeBuf)
+    marks.pills.forEach((p) => p.remove())
+    marks = null
   }
   // ---------- focus state ----------
   type Tgt = { lat: number; lon: number; z: number; fz: number }
@@ -894,6 +1017,9 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
     arcs = []
     ring = null
     arcKey = ""
+    marks?.pills.forEach((p) => p.remove())
+    marks = null
+    markKey = ""
     return true
   }
 
@@ -956,6 +1082,49 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
       sArr,
       oArr,
       count: count * 2,
+    }
+  }
+
+  function buildMarkers() {
+    const cfg = o.markers
+    const key = cfg ? JSON.stringify([cfg.places, o.flatCentre]) : ""
+    if (key === markKey) return
+    markKey = key
+    clearMarkers()
+    if (!cfg || !cfg.places.length) return
+    const n = cfg.places.length
+    const pos = new Float32Array(n * 6)
+    const ll = new Float32Array(n * 4)
+    const vec = cfg.places.map((p) => ll2v(p.lat, p.lon, 1.006))
+    const flat = cfg.places.map((p) => flatXY(p.lat, p.lon, o.flatCentre))
+    cfg.places.forEach((p, i) => {
+      for (const at of [i, n + i]) {
+        pos.set(vec[i], at * 3)
+        ll.set([p.lat, p.lon], at * 2)
+      }
+    })
+    const sArr = new Float32Array(n * 2)
+    const oArr = new Float32Array(n * 2)
+    marks = {
+      rings: { pos: buffer(pos), ll: buffer(ll), s: buffer(sArr, false, gl!.DYNAMIC_DRAW), o: buffer(oArr, false, gl!.DYNAMIC_DRAW), sArr, oArr, count: n * 2 },
+      pills: cfg.places.map((p) => {
+        const pill = document.createElement("div")
+        pill.className = "pg-pill pg-mk"
+        pill.textContent = p.label ?? ""
+        labelLayer.appendChild(pill)
+        return pill
+      }),
+      vec,
+      flat,
+      age: cfg.places.map(() => -1),
+      w: cfg.places.map(() => 0),
+      side: cfg.places.map(() => 1),
+      lo: cfg.places.map(() => 0),
+      sx: cfg.places.map(() => 0),
+      sy: cfg.places.map(() => 0),
+      vis: cfg.places.map(() => 0),
+      cursor: 0,
+      gap: 0,
     }
   }
 
@@ -1058,6 +1227,7 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
   let bgSet = false
   function applyStatic() {
     buildArcs()
+    buildMarkers()
     if (o.background !== "transparent" || bgSet) stage.style.background = o.background === "transparent" ? "" : o.background
     bgSet = o.background !== "transparent"
     canvas.style.cursor = o.draggable ? "grab" : ""
@@ -1144,6 +1314,144 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
       raf = requestAnimationFrame(frame)
     }
   }
+  /** Draw ranges [first, count, mode] of a ring buffer: mode 0 ring, 1 solid, 2 pulse. */
+  function drawIcons(mv: M4, viewF: M4, rg: Rings, ranges: number[][], size: number, colour: string, hor: number) {
+    const pr = progs.ring
+    gl!.useProgram(pr.p)
+    set(pr, "modelViewMatrix", mv)
+    set(pr, "projectionMatrix", proj)
+    set(pr, "normalMatrix", normal3(mv))
+    set(pr, "viewMatrix", viewF)
+    set(pr, "uMorph", morph)
+    set(pr, "uCentre", o.flatCentre)
+    set(pr, "uFlatK", FLAT_K)
+    set(pr, "uPx", px * size)
+    set(pr, "uHor", hor)
+    set(pr, "uColor", rgb(colour))
+    gl!.bindBuffer(gl!.ARRAY_BUFFER, rg.s)
+    gl!.bufferSubData(gl!.ARRAY_BUFFER, 0, rg.sArr)
+    gl!.bindBuffer(gl!.ARRAY_BUFFER, rg.o)
+    gl!.bufferSubData(gl!.ARRAY_BUFFER, 0, rg.oArr)
+    bindAttribs(pr, { position: [rg.pos, 3], aLL: [rg.ll, 2], aS: [rg.s, 1], aO: [rg.o, 1] })
+    for (const [first, count, mode] of ranges) {
+      set(pr, "uMode", mode)
+      gl!.drawArrays(gl!.POINTS, first, count)
+    }
+  }
+
+  // Marker timing, in seconds at speed 1.
+  const MK_LIFE = 4.6
+  const MK_PULSE = 1.4
+  const MK_HELD = 2.2
+  const sstep = (a: number, b: number, x: number) => {
+    const k = Math.min(1, Math.max(0, (x - a) / (b - a)))
+    return k * k * (3 - 2 * k)
+  }
+  /** Where a marker is on screen and how visible it is (0 on the far side of the globe or off the stage). */
+  function markSpot(mk: Markers, i: number, mv: M4, viewF: M4, hor: number, out: number[]) {
+    const v = mk.vec[i]
+    const g = apply4(mv, v[0], v[1], v[2])
+    const facing = g[2] - apply4(mv, 0, 0, 0)[2]
+    const f = apply4(viewF, mk.flat[i][0], mk.flat[i][1], 0)
+    const c = apply4(proj, g[0] + (f[0] - g[0]) * morph, g[1] + (f[1] - g[1]) * morph, g[2] + (f[2] - g[2]) * morph)
+    out[0] = (c[0] / c[3] * 0.5 + 0.5) * W
+    out[1] = (-c[1] / c[3] * 0.5 + 0.5) * H
+    out[2] = (1 - morph) * sstep(0, 0.2, facing - hor) + morph
+  }
+  function updateMarkers(mv: M4, viewF: M4, hor: number, dt: number, still: boolean) {
+    const m = o.markers as Exclude<GlobeOptions["markers"], false>
+    const mk = marks as Markers
+    const n = mk.pills.length
+    const step = still ? 0 : dt * m.speed
+    const spot = [0, 0, 0]
+    // Room to start a marker: in view, facing us, and clear of the ones already showing.
+    const canStart = (i: number) => {
+      markSpot(mk, i, mv, viewF, hor, spot)
+      if (spot[2] < 0.9 || spot[0] < 50 || spot[0] > W - 50 || spot[1] < 24 || spot[1] > H - 24) return false
+      return !mk.age.some((a, j) => a >= 0 && Math.abs(mk.sx[j] - spot[0]) < 120 && Math.abs(mk.sy[j] - spot[1]) < 26)
+    }
+    const start = (age: number) => {
+      for (let k = 0; k < n; k++) {
+        const i = (mk.cursor + k) % n
+        if (mk.age[i] < 0 && canStart(i)) {
+          mk.age[i] = age
+          mk.cursor = i + 1
+          mk.sx[i] = spot[0]
+          mk.sy[i] = spot[1]
+          return true
+        }
+      }
+      return false
+    }
+    let live = 0
+    for (let i = 0; i < n; i++) {
+      if (mk.age[i] < 0) continue
+      mk.age[i] += step
+      if (mk.age[i] >= MK_LIFE) mk.age[i] = -1
+      else if (still && (markSpot(mk, i, mv, viewF, hor, spot), spot[2] < 0.9)) mk.age[i] = -1
+      else live++
+    }
+    if (still) {
+      // Reduced motion: a few markers held in view, no pulse, no cycling. One is swapped only if it turns away.
+      while (live < m.count && start(MK_HELD)) live++
+    } else {
+      mk.gap -= step
+      if (live < m.count && mk.gap <= 0 && start(0)) mk.gap = MK_LIFE / m.count
+    }
+
+    // Icons and pulses (icons first n, pulses after), then labels from the oldest marker so it keeps its place.
+    const rg = mk.rings
+    rg.sArr.fill(0)
+    rg.oArr.fill(0)
+    const showing: number[] = []
+    for (let i = 0; i < n; i++) {
+      const a = mk.age[i]
+      if (a < 0) continue
+      showing.push(i)
+      markSpot(mk, i, mv, viewF, hor, spot)
+      mk.sx[i] = spot[0]
+      mk.sy[i] = spot[1]
+      mk.vis[i] = spot[2]
+      rg.sArr[i] = 0.75 + 0.25 * (1 - Math.pow(1 - Math.min(1, a / 0.5), 3))
+      rg.oArr[i] = sstep(0, 0.35, a) * (1 - sstep(MK_LIFE - 0.9, MK_LIFE, a)) * 0.95
+      const p = Math.min(1, a / MK_PULSE)
+      rg.sArr[n + i] = 0.9 + 1.7 * (1 - Math.pow(1 - p, 3))
+      rg.oArr[n + i] = still ? 0 : Math.pow(1 - p, 1.5) * 0.7
+    }
+    showing.sort((x, y) => mk.age[y] - mk.age[x])
+    const placed: number[][] = []
+    const h = 22
+    const off = 8.45 * (Math.min(W, H) / 640) * m.size + 6
+    for (let i = 0; i < n; i++) {
+      if (mk.age[i] < 0 && mk.lo[i] > 0) showing.push(i)
+    }
+    for (const i of showing) {
+      const a = mk.age[i]
+      const pill = mk.pills[i]
+      let want = 0
+      if (a >= 0 && m.labels && pill.textContent) {
+        const target = sstep(0.3, 0.8, a) * (1 - sstep(MK_LIFE - 1.2, MK_LIFE - 0.5, a)) * mk.vis[i]
+        const w = mk.w[i] || (mk.w[i] = pill.offsetWidth)
+        // Beside the icon, on the side that fits the stage and doesn't land on another label.
+        for (const sd of mk.side[i] > 0 ? [1, -1] : [-1, 1]) {
+          const x0 = sd > 0 ? mk.sx[i] + off : mk.sx[i] - off - w
+          const y0 = mk.sy[i] - h / 2
+          if (x0 < 4 || x0 + w > W - 4 || y0 < 4 || y0 + h > H - 4) continue
+          if (placed.some((q) => x0 < q[2] + 4 && x0 + w > q[0] - 4 && y0 < q[3] + 4 && y0 + h > q[1] - 4)) continue
+          want = target
+          mk.side[i] = sd
+          placed.push([x0, y0, x0 + w, y0 + h])
+          pill.style.left = (sd > 0 ? mk.sx[i] + off : mk.sx[i] - off) + "px"
+          pill.style.top = mk.sy[i] + "px"
+          pill.style.transform = sd > 0 ? "translate(0,-50%)" : "translate(-100%,-50%)"
+          break
+        }
+      }
+      mk.lo[i] = still || Math.abs(want - mk.lo[i]) < 0.004 ? want : mk.lo[i] + (want - mk.lo[i]) * Math.min(1, dt * 12 + 0.02)
+      pill.style.opacity = mk.lo[i] < 0.004 ? "0" : mk.lo[i].toFixed(3)
+    }
+  }
+
   function frame(now: number) {
     raf = 0
     if (paused() && ready) return
@@ -1398,19 +1706,14 @@ export function createParticleGlobe(stage: HTMLElement, input: GlobeInput = {}):
       gl!.disable(gl!.DEPTH_TEST)
     }
 
-    // Endpoint rings
-    if (o.arcs && o.arcs.rings && ring) {
-      const pr = progs.ring
-      common(pr, mv)
-      set(pr, "uPx", px * (o.arcs.ringSize ?? 1))
-      set(pr, "uHor", hor)
-      set(pr, "uColor", rgb(o.arcs.colors[1]))
-      gl!.bindBuffer(gl!.ARRAY_BUFFER, ring.s)
-      gl!.bufferSubData(gl!.ARRAY_BUFFER, 0, ring.sArr)
-      gl!.bindBuffer(gl!.ARRAY_BUFFER, ring.o)
-      gl!.bufferSubData(gl!.ARRAY_BUFFER, 0, ring.oArr)
-      bindAttribs(pr, { position: [ring.pos, 3], aLL: [ring.ll, 2], aS: [ring.s, 1], aO: [ring.o, 1] })
-      gl!.drawArrays(gl!.POINTS, 0, ring.count)
+    // Arc icons
+    if (o.arcs && o.arcs.icons.show && ring) drawIcons(mv, viewF, ring, [[0, ring.count, o.arcs.icons.style === "solid" ? 1 : 0]], o.arcs.icons.size, o.arcs.colors[1], hor)
+
+    // Markers
+    if (o.markers && marks) {
+      const n = marks.pills.length
+      updateMarkers(mv, viewF, hor, dt, still)
+      drawIcons(mv, viewF, marks.rings, [[0, n, o.markers.style === "solid" ? 1 : 0], [n, n, 2]], o.markers.size, o.markers.color, hor)
     }
 
     if (!ready) {

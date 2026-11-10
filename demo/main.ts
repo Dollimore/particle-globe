@@ -1,5 +1,5 @@
 import { demoRoutes, fillCached, peekFill } from "./routes"
-import { createParticleGlobe, DEFAULT_OPTIONS, REGIONS, type ArcRoute, type GlobeInput, type GlobeOptions, type RegionName } from "../src/index"
+import { createParticleGlobe, DEFAULT_MARKERS, DEFAULT_OPTIONS, REGIONS, type ArcRoute, type MarkerPlace, type GlobeInput, type GlobeOptions, type RegionName } from "../src/index"
 
 // ---------- presets ----------
 // Each preset is a designed pair: `shared` holds the character (shape, motion, dot behaviour),
@@ -19,6 +19,22 @@ const PRESETS: Preset[] = [
       rim: { color: "#5b46e0", strength: 0.75 },
       arcs: { colors: ["#ff7fa3", "#ffb36b"] },
       globe: { fill: "#110e2b", fillOpacity: 0.92 }, background: "#0a0820",
+    },
+  },
+  {
+    // Arcs off, markers on: cities appear one by one with a pulse and a label.
+    name: "Cities",
+    swatch: ["#0f766e", "#0ea5e9", "#6366f1"],
+    atmo: { light: "#5eead4", dark: "#2dd4bf" },
+    shared: { gradientAngle: 80, arcs: false, markers: { ...DEFAULT_MARKERS } },
+    light: {
+      colors: ["#0f766e", "#0ea5e9", "#6366f1"], dots: { highlight: 0.6 },
+      rim: { color: "#d4ece8", strength: 1 }, markers: { color: "#e5484d" }, background: "#f3f8f7",
+    },
+    dark: {
+      colors: ["#2dd4bf", "#38bdf8", "#818cf8"], dots: { highlight: 0.45, intensity: 1.1, farSide: 0.4 },
+      rim: { color: "#0f766e", strength: 0.7 }, markers: { color: "#fbbf24" },
+      globe: { fill: "#07191c", fillOpacity: 0.92 }, background: "#041012",
     },
   },
   {
@@ -124,21 +140,23 @@ const PRESETS: Preset[] = [
 ]
 
 // ---------- control map ----------
-type Group = "particles" | "atmosphere" | "arcs"
+type Group = "particles" | "atmosphere" | "arcs" | "markers"
 type RangeRow = { type: "range"; path: string; label: string; min: number; max: number; step: number; unit?: string; scale?: number; showIf?: string; globeOnly?: boolean }
 type ColorRow = { type: "color"; path: string; label: string }
 type ToggleRow = { type: "toggle"; path: string; label: string; globeOnly?: boolean }
-type SegRow = { type: "seg"; path: string; label: string; options: Array<[number, string]>; wrap?: boolean }
+type SegRow = { type: "seg"; path: string; label: string; options: Array<[number | string, string]>; wrap?: boolean; showIf?: string }
 type Row = RangeRow | ColorRow | ToggleRow | SegRow
 type ColorSet = { type: "colorset"; fields: Array<{ path: string; label: string }>; bar?: boolean }
 type Routes = { type: "routes"; path: string }
+type Places = { type: "places"; path: string }
 type RegionRow = { type: "region"; path: string }
-type Item = Row | ColorSet | Routes | RegionRow
+type Item = Row | ColorSet | Routes | Places | RegionRow
 type Section = { title: string; group?: Group; open?: boolean; globeOnly?: boolean; items: Item[]; more?: Item[] }
 
 const pct = (path: string, label: string, min = 0, max = 1, step = 0.01): RangeRow => ({ type: "range", path, label, min, max, step, unit: "%", scale: 100 })
 const num = (path: string, label: string, min: number, max: number, step: number, unit?: string): RangeRow => ({ type: "range", path, label, min, max, step, unit })
 
+const ICON_STYLES: Array<[string, string]> = [["ring", "Ring"], ["solid", "Solid"]]
 const SECTIONS: Section[] = [
   { title: "Region", open: true, items: [{ type: "region", path: "focus" }] },
   {
@@ -175,10 +193,23 @@ const SECTIONS: Section[] = [
     more: [
       { type: "range", path: "arcs.thickness", label: "Thickness", min: 0.001, max: 0.012, step: 0.0002, scale: 1000 },
       num("arcs.height", "Height", 0.1, 1, 0.01),
-      { type: "toggle", path: "arcs.rings", label: "Endpoint rings" },
-      { ...num("arcs.ringSize", "Icon size", 0.4, 3, 0.05, "×"), showIf: "arcs.rings" },
+      { type: "toggle", path: "arcs.icons.show", label: "Arc icons" },
+      { type: "seg", path: "arcs.icons.style", label: "Style", options: ICON_STYLES, showIf: "arcs.icons.show" },
+      { ...num("arcs.icons.size", "Size", 0.4, 3, 0.05, "×"), showIf: "arcs.icons.show" },
       { type: "toggle", path: "arcs.labels", label: "Route labels", globeOnly: true },
       { type: "routes", path: "arcs.routes" },
+    ],
+  },
+  {
+    title: "Markers", group: "markers",
+    items: [
+      { type: "color", path: "markers.color", label: "Colour" },
+      { type: "seg", path: "markers.style", label: "Style", options: ICON_STYLES },
+      num("markers.size", "Size", 0.4, 3, 0.05, "×"),
+      num("markers.speed", "Timing", 0.25, 3, 0.05, "×"),
+      num("markers.count", "At once", 1, 6, 1),
+      { type: "toggle", path: "markers.labels", label: "Labels" },
+      { type: "places", path: "markers.places" },
     ],
   },
   {
@@ -237,7 +268,7 @@ function stripColours(e: any): boolean {
   }
   del(e, "colors")
   del(e, "background")
-  for (const [g, k] of [["rim", "color"], ["arcs", "colors"], ["globe", "fill"], ["atmosphere", "color"]] as const) {
+  for (const [g, k] of [["rim", "color"], ["arcs", "colors"], ["globe", "fill"], ["atmosphere", "color"], ["markers", "color"]] as const) {
     if (!isObj(e[g])) continue
     del(e[g], k)
     if (!Object.keys(e[g]).length) delete e[g]
@@ -317,12 +348,22 @@ theme = isDark() ? "dark" : "light"
 let base: GlobeOptions = resolve(PRESETS[0])
 let state: GlobeOptions = clone(base)
 const groupMemory: Partial<Record<Group, any>> = {}
+/** Share links made before the arc icons were one group used `arcs.rings` and `arcs.ringSize`. */
+function migrate(opts: any): any {
+  const a = opts?.arcs
+  if (!isObj(a) || !("rings" in a || "ringSize" in a)) return opts
+  const { rings, ringSize, ...rest } = a
+  const icons = { ...(isObj(rest.icons) ? rest.icons : {}) }
+  if (typeof rings === "boolean") icons.show = rings
+  if (typeof ringSize === "number") icons.size = ringSize
+  return { ...opts, arcs: { ...rest, icons } }
+}
 const presetOf = (name: string) => PRESETS.find((p) => p.name === name) ?? PRESETS[0]
 
 try {
   presetName = presetOf(saved.preset ?? presetName).name
   base = resolve(presetOf(presetName))
-  state = merge(base, saved.options ?? {})
+  state = merge(base, migrate(saved.options ?? {}))
 } catch {
   /* ignore a bad link */
 }
@@ -332,7 +373,12 @@ const globe = createParticleGlobe(stage, { ...state, flatTransition: 1200 })
 if (!globe) stage.insertAdjacentHTML("beforeend", '<p class="err">This browser has no WebGL, so the globe can\'t draw here.</p>')
 const push = (input: GlobeInput) => globe?.update(input)
 
-const groupFallback = (g: Group): any => (g === "atmosphere" ? { color: presetOf(presetName).atmo[theme], strength: 0.2, size: 1.12 } : clone(DEMO_DEFAULTS[g]))
+const groupFallback = (g: Group): any =>
+  g === "atmosphere"
+    ? { color: presetOf(presetName).atmo[theme], strength: 0.2, size: 1.12 }
+    : g === "markers"
+      ? { ...clone(DEFAULT_MARKERS), color: get(base, "arcs.colors.1") ?? DEFAULT_MARKERS.color }
+      : clone(DEMO_DEFAULTS[g])
 /** The value a control returns to: the preset's, or the library default for a group the preset leaves off. */
 function baseline(path: string, group?: Group): any {
   const v = get(base, path)
@@ -732,6 +778,7 @@ function segRow(r: SegRow, group?: Group): HTMLElement {
   el.appendChild(dotReset(r.path, r.label, group))
   el.insertAdjacentHTML("beforeend", `<span class="label">${r.label}</span>`)
   el.appendChild(segControl(r, group))
+  if (r.showIf) sync.push(() => { el.hidden = !cur(r.showIf!, group) })
   return el
 }
 
@@ -969,6 +1016,70 @@ function routesEditor(r: Routes, group?: Group): HTMLElement {
   return el
 }
 
+// ---------- marker places: "lat, lon  label" ----------
+function parsePlaces(text: string): { places: MarkerPlace[]; error?: string } {
+  const places: MarkerPlace[] = []
+  const lines = text.split(/\r?\n/)
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim()
+    if (!line || line.startsWith("#")) continue
+    const m = RIGHT.exec(line)
+    if (!m) return { places, error: `Line ${i + 1}: use  lat, lon  label` }
+    const [la, lo] = [+m[1], +m[2]]
+    if (Math.abs(la) > 90) return { places, error: `Line ${i + 1}: latitude runs from -90 to 90` }
+    if (Math.abs(lo) > 180) return { places, error: `Line ${i + 1}: longitude runs from -180 to 180` }
+    const p: MarkerPlace = { lat: la, lon: lo }
+    if (m[3]) p.label = m[3].trim()
+    places.push(p)
+  }
+  return places.length ? { places } : { places, error: "Add at least one place" }
+}
+const placeLines = (ps: MarkerPlace[]) => ps.map((p) => `${p.lat}, ${p.lon}${p.label ? "  " + p.label : ""}`).join("\n")
+
+function placesEditor(r: Places, group?: Group): HTMLElement {
+  const el = document.createElement("div")
+  el.className = "routes"
+  const id = `c${uid++}`
+  el.innerHTML = `<div class="routes-head"><label for="${id}">Places</label><span><small class="count"></small> <button type="button" class="link-btn">Use preset places</button></span></div>
+    <textarea id="${id}" spellcheck="false" autocomplete="off" wrap="off" aria-describedby="${id}-h"></textarea>
+    <p class="help" id="${id}-h">One per line: <code>lat, lon  label</code>. Markers appear one after another, skipping places on the far side of the globe.</p>
+    <p class="err-line" role="alert" hidden></p>`
+  const ta = el.querySelector("textarea")!
+  const err = el.querySelector<HTMLElement>(".err-line")!
+  const count = el.querySelector(".count")!
+  const useDefault = el.querySelector<HTMLButtonElement>(".link-btn")!
+  let timer = 0
+  ta.addEventListener("input", () => {
+    clearTimeout(timer)
+    timer = window.setTimeout(() => {
+      const res = parsePlaces(ta.value)
+      err.hidden = !res.error
+      err.textContent = res.error ?? ""
+      ta.setAttribute("aria-invalid", String(!!res.error))
+      if (!res.error) commit(r.path, res.places, group)
+    }, 250)
+  })
+  ta.addEventListener("blur", () => {
+    if (!err.hidden) {
+      ta.value = placeLines(get(state, r.path))
+      err.hidden = true
+    }
+  })
+  useDefault.addEventListener("click", () => {
+    commit(r.path, clone(DEFAULT_MARKERS.places), group)
+    ta.value = placeLines(get(state, r.path))
+    err.hidden = true
+  })
+  sync.push(() => {
+    const v = cur(r.path, group) as MarkerPlace[] | undefined
+    if (!v) return
+    count.textContent = `${v.length} place${v.length === 1 ? "" : "s"}`
+    useDefault.hidden = same(v, DEFAULT_MARKERS.places)
+    if (document.activeElement !== ta) ta.value = placeLines(v)
+  })
+  return el
+}
+
 function build(item: Item, group?: Group): HTMLElement {
   switch (item.type) {
     case "range": return rangeRow(item, group)
@@ -977,6 +1088,7 @@ function build(item: Item, group?: Group): HTMLElement {
     case "seg": return segRow(item, group)
     case "colorset": return colorSet(item, group)
     case "routes": return routesEditor(item, group)
+    case "places": return placesEditor(item, group)
     case "region": return regionRow(item)
   }
 }
@@ -1195,6 +1307,7 @@ paintTheme()
 document.getElementById("copy-install")!.addEventListener("click", () => copy("npm i particle-globe", "Install command copied"))
 document.getElementById("copy-code")!.addEventListener("click", () => {
   const opts = diff(state, DEFAULT_OPTIONS) ?? {}
+  if (isObj(state.markers)) opts.markers = diff(state.markers, DEFAULT_MARKERS) ?? {}
   const body = Object.keys(opts).length ? ser(opts) : "{}"
   copy(`import { createParticleGlobe } from "particle-globe"\n\ncreateParticleGlobe(document.getElementById("globe"), ${body})\n`, "Code copied")
 })

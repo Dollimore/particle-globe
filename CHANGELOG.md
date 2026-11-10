@@ -17,6 +17,10 @@ First release.
 - Fixed the console warning "drawElements: no buffer is bound to enabled attribute" that appeared after arcs were rebuilt.
 - Fragment shaders fall back to medium precision where high precision is missing.
 
+- Arc icons are one group: `arcs.icons` is `{ show, size, style }`, where `style` is `"ring"` (a stroked ring with a bright core, the default) or `"solid"` (one filled dot in the arc's end colour). It replaces `arcs.rings` and `arcs.ringSize`; the defaults render the same pixels as before.
+- Markers: `markers` shows places (`{ lat, lon, label }`) one at a time or a few staggered, each with a pulse and a label that fades in beside it, holds, then fades out. Works on the globe and the flat map, alone or with arcs. Far-side markers are skipped and fade out, labels stay inside the stage and avoid each other, and reduced motion holds a few still. Off by default. It reuses the arc icon shader and label layer. Exports `DEFAULT_MARKERS` and `DEFAULT_PLACES`.
+- Element attributes `arcs-icons`, `arcs-icon-size`, `arcs-icon-style` (replacing `arcs-rings`), and `markers`, `markers-*`.
+
 ### Entries
 
 - `particle-globe/element`: a `<particle-globe>` custom element. Attributes for simple options, an `options` property or JSON attribute for the rest.
@@ -27,4 +31,5 @@ First release.
 
 - Region control with a custom latitude, longitude and zoom popover; wider Size and Density ranges.
 - On the flat map the controls that do nothing there (Motion, Far side, Route labels) are hidden. Their values stay.
+- Arcs has an Arc icons group (on or off, Ring or Solid, size) and there is a Markers section with a places list, colour, style, size, timing, how many at once and labels. A Cities preset starts with arcs off and markers on. Share links that used `rings` and `ringSize` still load.
 - Page title, description, social preview image and favicon.

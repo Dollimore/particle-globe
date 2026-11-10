@@ -133,9 +133,18 @@ Pass any subset. Bad values (NaN, a wrong type, a colour that does not parse) ar
 | `arcs.thickness` | `number` | `0.0042` | 0.001 to 0.012 |
 | `arcs.height` | `number` | `0.42` | 0.1 to 1, relative to distance |
 | `arcs.speed` | `number` | `1` | Speed multiplier |
-| `arcs.rings` | `boolean` | `true` | Rings at each end |
-| `arcs.ringSize` | `number` | `1` | Size multiplier for the endpoint rings |
+| `arcs.icons.show` | `boolean` | `true` | Icons at each end of an arc |
+| `arcs.icons.size` | `number` | `1` | Size multiplier for the arc icons |
+| `arcs.icons.style` | `"ring"` or `"solid"` | `"ring"` | `"ring"` is a stroked ring with a bright core. `"solid"` is one filled dot in the arc's end colour |
 | `arcs.labels` | `boolean` | `false` | Show route labels at the destination |
+| `markers` | `false` or object | `false` | Places that appear one at a time with a pulse and a label, then fade out. See Markers below |
+| `markers.places` | `MarkerPlace[]` | 14 world cities | `{ lat, lon, label? }` each |
+| `markers.color` | `string` | `"#fa8c5c"` | Icon colour |
+| `markers.style` | `"ring"` or `"solid"` | `"ring"` | Same two looks as the arc icons |
+| `markers.size` | `number` | `1` | Size multiplier |
+| `markers.speed` | `number` | `1` | Pace of the cycle. At 1 each marker shows for about 4.6 seconds |
+| `markers.count` | `number` | `2` | How many show at once, 1 to 12 |
+| `markers.labels` | `boolean` | `true` | Show each place's label |
 | `rotation.auto` | `boolean` | `true` | |
 | `rotation.speed` | `number` | `0.035` | Radians per second |
 | `rotation.direction` | `1 or -1` | `1` | 1 spins left to right |
@@ -158,6 +167,26 @@ Turn a group off with `false`, back on by passing an object:
 globe.update({ particles: false, arcs: false })
 globe.update({ atmosphere: { color: "#9e94ff" } })
 ```
+
+### Markers
+
+Markers are off by default. Switch them on with `markers: {}` (the default places) or pass your own list. They work on the globe and the flat map, with arcs or instead of them.
+
+```ts
+createParticleGlobe(stage, {
+  arcs: false,
+  markers: {
+    places: [
+      { lat: 51.51, lon: -0.13, label: "London" },
+      { lat: 35.68, lon: 139.69, label: "Tokyo" },
+    ],
+    count: 1,
+    style: "solid",
+  },
+})
+```
+
+Each marker pulses once, fades its label in beside it, holds, then fades out; the next place in the list takes over. On the globe, places on the far side are skipped until they turn into view, and labels move to the other side of their marker, or hide, rather than overlap each other or leave the stage. With reduced motion a few markers are held still, with no pulse and no cycling. `DEFAULT_PLACES` and `DEFAULT_MARKERS` are exported. As a custom element: the `markers` attribute, plus `markers-style`, `markers-size`, `markers-speed`, `markers-count`, `markers-labels` and `markers-color`.
 
 ### Arc routes
 
@@ -190,8 +219,8 @@ The defaults are exported as `DEFAULT_OPTIONS` and `DEFAULT_ROUTES`, and the reg
 
 | Entry | Raw | Gzip | Brotli |
 |---|---|---|---|
-| `particle-globe` (core, with the land data) | 30.8 KB | 14.2 KB | 12.6 KB |
-| `particle-globe/element` | 3.1 KB | 1.4 KB | 1.2 KB |
+| `particle-globe` (core, with the land data) | 36.1 KB | 16.1 KB | 14.3 KB |
+| `particle-globe/element` | 3.6 KB | 1.5 KB | 1.3 KB |
 | `particle-globe/react` | 1.0 KB | 0.5 KB | 0.5 KB |
 
 The wrappers import the core, so a page that uses one pays for the core once. Run `npm run size` to measure it.

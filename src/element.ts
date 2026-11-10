@@ -7,7 +7,7 @@
  * Simple options are attributes (attribute list in this file). Anything else goes in the `options` property or in an
  * `options` attribute holding JSON. Importing this on the server is safe; it only registers in a browser.
  */
-import { createParticleGlobe, DEFAULT_OPTIONS, REGIONS, type GlobeInput, type ParticleGlobe } from "./index"
+import { createParticleGlobe, DEFAULT_MARKERS, DEFAULT_OPTIONS, REGIONS, type GlobeInput, type ParticleGlobe } from "./index"
 
 type Kind = "num" | "str" | "bool" | "colors" | "focus" | "group"
 /** attribute name -> [option path, how to read it]. */
@@ -42,7 +42,16 @@ const ATTRS: Record<string, [string, Kind]> = {
   atmosphere: ["atmosphere", "group"],
   arcs: ["arcs", "group"],
   "arcs-labels": ["arcs.labels", "bool"],
-  "arcs-rings": ["arcs.rings", "bool"],
+  "arcs-icons": ["arcs.icons.show", "bool"],
+  "arcs-icon-size": ["arcs.icons.size", "num"],
+  "arcs-icon-style": ["arcs.icons.style", "str"],
+  markers: ["markers", "group"],
+  "markers-labels": ["markers.labels", "bool"],
+  "markers-style": ["markers.style", "str"],
+  "markers-size": ["markers.size", "num"],
+  "markers-speed": ["markers.speed", "num"],
+  "markers-count": ["markers.count", "num"],
+  "markers-color": ["markers.color", "str"],
 }
 
 const isObj = (v: unknown): v is Record<string, any> => !!v && typeof v === "object" && !Array.isArray(v)
@@ -140,7 +149,7 @@ export function defineParticleGlobe(tag = "particle-globe"): void {
       if (name === "options") return void this.g.update(this.input())
       const [path, kind] = ATTRS[name]
       // A removed attribute puts the option back to its default.
-      const v = val === null ? getIn(DEFAULT_OPTIONS, path) : read(kind, val)
+      const v = val === null ? (path.startsWith("markers.") ? getIn({ markers: DEFAULT_MARKERS }, path) : getIn(DEFAULT_OPTIONS, path)) : read(kind, val)
       if (v !== undefined) this.g.update(setIn(path, v))
     }
   }

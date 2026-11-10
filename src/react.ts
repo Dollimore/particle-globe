@@ -61,4 +61,4 @@ export function ParticleGlobe({ ref, className, style, ...props }: ParticleGlobe
   return createElement("div", { ...rest, ref: el, className, style: { position: "relative", ...style } })
 }
 
-export type { GlobeInput, GlobeOptions, ArcRoute, Focus, ParticleGlobe as ParticleGlobeInstance } from "./index"
+export type { GlobeInput, GlobeOptions, ArcRoute, MarkerPlace, IconStyle, Focus, ParticleGlobe as ParticleGlobeInstance } from "./index"
