@@ -397,3 +397,19 @@ h1 { margin: 0; font-size: 14px; font-weight: 650; letter-spacing: -0.01em; whit
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
 }
+
+/* region focus */
+.row-region { margin: 2px 0 2px 22px; display: grid; gap: 6px; }
+.row-region .seg { display: grid; grid-template-columns: repeat(3, 1fr); width: 100%; }
+.row-region .seg button { padding: 0 6px; overflow: hidden; text-overflow: ellipsis; }
+.focus-pop { width: 248px; }
+.fp-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.fp-field { display: grid; gap: 4px; color: var(--muted); font-size: 11px; font-weight: 500; }
+.fp-field input {
+  width: 100%; min-width: 0; height: 28px; padding: 0 6px; font: 12px var(--mono); color: var(--ink);
+  background: var(--surface-2); border: 1px solid transparent; border-radius: var(--r-sm);
+}
+.fp-field input:hover { border-color: var(--line-strong); }
+.fp-field input:focus { outline: none; border-color: var(--accent); background: var(--surface); box-shadow: 0 0 0 3px var(--accent-soft); }
+.fp-field input.bad { border-color: var(--danger); }
+.row-region .help, .focus-pop .help { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }

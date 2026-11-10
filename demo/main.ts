@@ -1,5 +1,5 @@
 import { demoRoutes, fillCached, peekFill } from "./routes"
-import { createParticleGlobe, DEFAULT_OPTIONS, type ArcRoute, type GlobeInput, type GlobeOptions } from "../src/index"
+import { createParticleGlobe, DEFAULT_OPTIONS, REGIONS, type ArcRoute, type GlobeInput, type GlobeOptions, type RegionName } from "../src/index"
 
 // ---------- presets ----------
 // Each preset is a designed pair: `shared` holds the character (shape, motion, dot behaviour),
@@ -125,20 +125,22 @@ const PRESETS: Preset[] = [
 
 // ---------- control map ----------
 type Group = "particles" | "atmosphere" | "arcs"
-type RangeRow = { type: "range"; path: string; label: string; min: number; max: number; step: number; unit?: string; scale?: number; showIf?: string }
+type RangeRow = { type: "range"; path: string; label: string; min: number; max: number; step: number; unit?: string; scale?: number; showIf?: string; globeOnly?: boolean }
 type ColorRow = { type: "color"; path: string; label: string }
-type ToggleRow = { type: "toggle"; path: string; label: string }
+type ToggleRow = { type: "toggle"; path: string; label: string; globeOnly?: boolean }
 type SegRow = { type: "seg"; path: string; label: string; options: Array<[number, string]>; wrap?: boolean }
 type Row = RangeRow | ColorRow | ToggleRow | SegRow
 type ColorSet = { type: "colorset"; fields: Array<{ path: string; label: string }>; bar?: boolean }
 type Routes = { type: "routes"; path: string }
-type Item = Row | ColorSet | Routes
+type RegionRow = { type: "region"; path: string }
+type Item = Row | ColorSet | Routes | RegionRow
 type Section = { title: string; group?: Group; open?: boolean; globeOnly?: boolean; items: Item[]; more?: Item[] }
 
 const pct = (path: string, label: string, min = 0, max = 1, step = 0.01): RangeRow => ({ type: "range", path, label, min, max, step, unit: "%", scale: 100 })
 const num = (path: string, label: string, min: number, max: number, step: number, unit?: string): RangeRow => ({ type: "range", path, label, min, max, step, unit })
 
 const SECTIONS: Section[] = [
+  { title: "Region", open: true, items: [{ type: "region", path: "focus" }] },
   {
     title: "Colours", open: true,
     items: [
@@ -150,8 +152,8 @@ const SECTIONS: Section[] = [
   },
   {
     title: "Dots", open: true,
-    items: [pct("dots.density", "Density", 0.05), num("dots.size", "Size", 0.2, 4, 0.05), num("dots.intensity", "Brightness", 0, 2, 0.01)],
-    more: [num("dots.sizeVariation", "Size variation", 0, 2.5, 0.05), pct("dots.twinkle", "Twinkle"), pct("dots.highlight", "Highlight fade"), pct("dots.farSide", "Far side")],
+    items: [pct("dots.density", "Density", 0.05, 5, 0.05), num("dots.size", "Size", 0.1, 4, 0.05), num("dots.intensity", "Brightness", 0, 2, 0.01)],
+    more: [num("dots.sizeVariation", "Size variation", 0, 2.5, 0.05), pct("dots.twinkle", "Twinkle"), pct("dots.highlight", "Highlight fade"), { ...pct("dots.farSide", "Far side"), globeOnly: true }],
   },
   {
     title: "Particles", group: "particles",
@@ -175,7 +177,7 @@ const SECTIONS: Section[] = [
       num("arcs.height", "Height", 0.1, 1, 0.01),
       { type: "toggle", path: "arcs.rings", label: "Endpoint rings" },
       { ...num("arcs.ringSize", "Icon size", 0.4, 3, 0.05, "×"), showIf: "arcs.rings" },
-      { type: "toggle", path: "arcs.labels", label: "Route labels" },
+      { type: "toggle", path: "arcs.labels", label: "Route labels", globeOnly: true },
       { type: "routes", path: "arcs.routes" },
     ],
   },
@@ -187,7 +189,7 @@ const SECTIONS: Section[] = [
     ],
   },
   {
-    title: "Motion",
+    title: "Motion", globeOnly: true,
     items: [
       { type: "toggle", path: "rotation.auto", label: "Auto-rotate" },
       num("rotation.speed", "Speed", 0, 0.3, 0.005),
@@ -689,7 +691,7 @@ function rangeRow(r: RangeRow, group?: Group): HTMLElement {
     box.classList.remove("bad")
   })
   sync.push(() => {
-    if (r.showIf) el.hidden = !cur(r.showIf, group)
+    el.hidden = (!!r.globeOnly && !!state.flat) || (!!r.showIf && !cur(r.showIf, group))
     const v = cur(r.path, group)
     if (v === undefined) return
     slider.value = String(v)
@@ -718,6 +720,7 @@ function toggleRow(r: ToggleRow, group?: Group): HTMLElement {
   const inp = el.querySelector("input")!
   inp.addEventListener("change", () => commit(r.path, inp.checked, group))
   sync.push(() => {
+    el.hidden = !!r.globeOnly && !!state.flat
     inp.checked = !!cur(r.path, group)
   })
   return el
@@ -729,6 +732,109 @@ function segRow(r: SegRow, group?: Group): HTMLElement {
   el.appendChild(dotReset(r.path, r.label, group))
   el.insertAdjacentHTML("beforeend", `<span class="label">${r.label}</span>`)
   el.appendChild(segControl(r, group))
+  return el
+}
+
+const REGION_NAMES = Object.keys(REGIONS) as RegionName[]
+let customView = { lat: 35, lon: 105, zoom: 4 }
+/** Region buttons, plus a Custom button that opens a small popover for latitude, longitude and zoom. */
+function regionRow(r: RegionRow): HTMLElement {
+  const el = document.createElement("div")
+  el.className = "row-region"
+  el.innerHTML = `<div class="seg wrap three" role="group" aria-label="Region"></div>
+    <p class="help">Fly the camera to a region. Works on the globe and the flat map.</p>`
+  const seg = el.querySelector<HTMLElement>(".seg")!
+  const btns = REGION_NAMES.map((name) => {
+    const b = document.createElement("button")
+    b.type = "button"
+    b.textContent = REGIONS[name].label
+    b.addEventListener("click", () => {
+      pop.close(false)
+      commit(r.path, name === "world" ? null : name)
+    })
+    seg.appendChild(b)
+    return [b, name] as const
+  })
+  const custom = document.createElement("button")
+  custom.type = "button"
+  custom.textContent = "Custom"
+  custom.setAttribute("aria-haspopup", "dialog")
+  seg.appendChild(custom)
+
+  const pop = (() => {
+    const box = document.createElement("div")
+    box.className = "picker focus-pop"
+    box.hidden = true
+    box.setAttribute("role", "dialog")
+    box.setAttribute("aria-label", "Custom view")
+    const field = (key: string, label: string, min: number, max: number, step: number) =>
+      `<label class="fp-field"><span>${label}</span><input data-k="${key}" type="number" inputmode="decimal" min="${min}" max="${max}" step="${step}" autocomplete="off"></label>`
+    box.innerHTML = `<div class="fp-grid">${field("lat", "Latitude", -90, 90, 1)}${field("lon", "Longitude", -180, 180, 1)}${field("zoom", "Zoom", 1, 16, 0.5)}</div>
+      <p class="help">Zoom 1 is the whole world. Each step shows a smaller slice.</p>`
+    document.body.appendChild(box)
+    const inputs = Array.from(box.querySelectorAll<HTMLInputElement>("input"))
+    const place = () => {
+      const a = custom.getBoundingClientRect()
+      const w = box.offsetWidth
+      const h = box.offsetHeight
+      const m = 8
+      let top = a.bottom + 6
+      if (top + h > innerHeight - m) top = a.top - h - 6 >= m ? a.top - h - 6 : Math.max(m, innerHeight - h - m)
+      box.style.top = `${top}px`
+      box.style.left = `${Math.min(Math.max(m, a.right - w), Math.max(m, innerWidth - w - m))}px`
+    }
+    const close = (refocus: boolean) => {
+      if (box.hidden) return
+      box.hidden = true
+      custom.setAttribute("aria-expanded", "false")
+      if (refocus) custom.focus()
+    }
+    const range: Record<string, [number, number]> = { lat: [-90, 90], lon: [-180, 180], zoom: [1, 16] }
+    inputs.forEach((i) =>
+      i.addEventListener("input", () => {
+        const v = inputs.map((x) => parseFloat(x.value))
+        i.classList.toggle("bad", Number.isNaN(parseFloat(i.value)))
+        if (v.some(Number.isNaN)) return
+        const [lat, lon, zoom] = inputs.map((x, n) => Math.min(range[x.dataset.k!][1], Math.max(range[x.dataset.k!][0], v[n])))
+        customView = { lat, lon, zoom }
+        commit(r.path, { ...customView })
+      }),
+    )
+    box.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault()
+        close(true)
+      }
+    })
+    document.addEventListener("pointerdown", (e) => {
+      const t = e.target as Node
+      if (!box.hidden && !box.contains(t) && !custom.contains(t)) close(false)
+    }, true)
+    addEventListener("resize", () => !box.hidden && place())
+    document.getElementById("scroll")!.addEventListener("scroll", () => close(false), { passive: true })
+    return {
+      get open() { return !box.hidden },
+      show() {
+        const f = get(state, r.path)
+        if (isObj(f)) customView = { lat: f.lat, lon: f.lon, zoom: f.zoom }
+        else commit(r.path, { ...customView })
+        inputs.forEach((i) => (i.value = String(customView[i.dataset.k as "lat"])))
+        box.hidden = false
+        custom.setAttribute("aria-expanded", "true")
+        place()
+        inputs[0].focus({ preventScroll: true })
+      },
+      close,
+    }
+  })()
+  custom.addEventListener("click", () => (pop.open ? pop.close(false) : pop.show()))
+
+  sync.push(() => {
+    const f = get(state, r.path)
+    const active = isObj(f) ? "custom" : (f ?? "world")
+    btns.forEach(([b, name]) => b.setAttribute("aria-pressed", String(name === active)))
+    custom.setAttribute("aria-pressed", String(active === "custom"))
+  })
   return el
 }
 
@@ -871,6 +977,7 @@ function build(item: Item, group?: Group): HTMLElement {
     case "seg": return segRow(item, group)
     case "colorset": return colorSet(item, group)
     case "routes": return routesEditor(item, group)
+    case "region": return regionRow(item)
   }
 }
 const pathsOf = (items: Item[]): string[] =>
@@ -1005,7 +1112,7 @@ function refresh() {
   sync.forEach((f) => f())
   document.querySelectorAll<HTMLButtonElement>(".preset").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.name === presetName)))
   centreBox.hidden = !state.flat
-  hintEl.hidden = !!state.flat
+  hintEl.hidden = !!state.flat || !!state.focus
   const ref = { ...base, flat: state.flat, flatCentre: state.flatCentre }
   editedPill.hidden = diff(state, ref) === undefined
   history.replaceState(null, "", `#${encodeURIComponent(b64.enc(JSON.stringify({ preset: presetName, theme, options: diff(state, base) ?? {} })))}`)
