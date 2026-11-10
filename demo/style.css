@@ -103,6 +103,7 @@ h1 { margin: 0; font-size: 14px; font-weight: 650; letter-spacing: -0.01em; whit
   display: inline-flex; align-items: center; height: 28px; padding: 0 10px; border-radius: var(--r-sm);
   color: var(--muted); font-size: 12px; text-decoration: none; background: none; border: 0;
 }
+.link.by { white-space: nowrap; }
 .install { border: 1px solid var(--line); background: var(--surface); }
 .install code { font: 12px var(--mono); color: var(--ink); }
 .link:hover, .install:hover { color: var(--ink); background: var(--hover); }
@@ -383,7 +384,7 @@ h1 { margin: 0; font-size: 14px; font-weight: 650; letter-spacing: -0.01em; whit
 @media (max-width: 800px) {
   body { grid-template-rows: auto minmax(0, 1fr); }
   .top { height: 46px; padding: 0 8px 0 14px; }
-  .meta, .install { display: none; }
+  .meta, .install, .by-pre { display: none; }
   .layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(220px, 40dvh) minmax(0, 1fr); gap: 8px; padding: 0 8px 8px; }
   .stage-bar { left: 8px; right: 8px; bottom: 8px; }
   .hint { display: none; }

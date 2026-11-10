@@ -19,7 +19,7 @@
     "zero-dependencies"
   ],
   "license": "MIT",
-  "author": "Micky Dollimore",
+  "author": { "name": "Micky Dollimore", "url": "https://mickydollimore.com" },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Dollimore/particle-globe.git"

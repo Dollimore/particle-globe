@@ -241,6 +241,8 @@ npm run size
 
 Land outlines from [Natural Earth](https://www.naturalearthdata.com) (public domain).
 
+Made by [Micky Dollimore](https://mickydollimore.com).
+
 ## Licence
 
 MIT. Copyright (c) 2026 Micky Dollimore.
