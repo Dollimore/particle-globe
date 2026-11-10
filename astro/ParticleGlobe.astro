@@ -1,0 +1,15 @@
+---
+import type { GlobeInput } from "particle-globe"
+
+export interface Props extends Omit<GlobeInput, "onReady"> {
+  class?: string
+}
+
+const { class: className, ...options } = Astro.props
+---
+
+<particle-globe class={className} options={JSON.stringify(options)} aria-hidden="true"></particle-globe>
+
+<script>
+  import "particle-globe/element"
+</script>

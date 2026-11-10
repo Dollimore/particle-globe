@@ -1,14 +1,22 @@
 {
   "name": "particle-globe",
   "version": "0.1.0",
-  "description": "A tiny particle globe for the web: land as glowing dots, floating particles, arcs between places, and a morph to a flat Mercator map. Plain WebGL, no dependencies.",
+  "description": "A tiny particle globe for the web: land as glowing dots, floating particles, arcs between places, region focus, and a morph to a flat Mercator map. Plain WebGL, no dependencies.",
   "keywords": [
     "globe",
     "webgl",
     "map",
-    "particles",
     "mercator",
-    "three-free"
+    "particles",
+    "dots",
+    "data-visualization",
+    "web-component",
+    "custom-element",
+    "react",
+    "astro",
+    "nextjs",
+    "vite",
+    "zero-dependencies"
   ],
   "license": "MIT",
   "author": "Micky Dollimore",
@@ -16,7 +24,7 @@
     "type": "git",
     "url": "git+https://github.com/Dollimore/particle-globe.git"
   },
-  "homepage": "https://dollimore.github.io/particle-globe/",
+  "homepage": "https://github.com/Dollimore/particle-globe#readme",
   "bugs": {
     "url": "https://github.com/Dollimore/particle-globe/issues"
   },
@@ -27,22 +35,56 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/particle-globe.js"
+      "import": "./dist/particle-globe.js",
+      "default": "./dist/particle-globe.js"
     },
+    "./element": {
+      "types": "./dist/element.d.ts",
+      "import": "./dist/element.js",
+      "default": "./dist/element.js"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js",
+      "default": "./dist/react.js"
+    },
+    "./astro": "./astro/ParticleGlobe.astro",
     "./package.json": "./package.json"
   },
   "files": [
-    "dist"
+    "dist",
+    "astro",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
   ],
-  "sideEffects": false,
+  "sideEffects": [
+    "./dist/element.js"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "peerDependencies": {
+    "react": ">=19"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "vite build && tsc -p tsconfig.build.json && rm -f dist/land-mask.d.ts",
     "dev": "vite demo",
     "build:demo": "vite build --config vite.demo.config.ts",
     "size": "node scripts/size.mjs",
-    "land": "node scripts/build-land.mjs"
+    "land": "node scripts/build-land.mjs",
+    "prepublishOnly": "npm run build"
   },
   "devDependencies": {
+    "@types/react": "^19.3.0",
     "terser": "^5.51.2",
     "typescript": "6.0.3",
     "vite": "7.3.6"

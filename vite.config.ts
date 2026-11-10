@@ -97,7 +97,7 @@ function minifyChunk(): Plugin {
           mangle: { toplevel: true },
           format: { comments: false },
         })
-        f.code = r.code!
+        f.code = (f.name === "react" ? '"use client";' : "") + r.code!
       }
     },
   }
@@ -110,6 +110,16 @@ export default defineConfig({
     minify: false,
     sourcemap: false,
     emptyOutDir: true,
-    lib: { entry: "src/index.ts", formats: ["es"], fileName: () => "particle-globe.js" },
+    lib: {
+      entry: { index: "src/index.ts", element: "src/element.ts", react: "src/react.ts" },
+      formats: ["es"],
+      fileName: (_format, name) => (name === "index" ? "particle-globe.js" : `${name}.js`),
+    },
+    rollupOptions: {
+      external: ["react"],
+      onwarn(w, warn) {
+        if (w.code !== "MODULE_LEVEL_DIRECTIVE" && !/Can't resolve original location/.test(w.message)) warn(w)
+      },
+    },
   },
 })
