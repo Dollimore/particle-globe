@@ -115,6 +115,20 @@ h1 { margin: 0; font-size: 14px; font-weight: 650; letter-spacing: -0.01em; whit
 }
 .icon-btn:hover { background: var(--hover); color: var(--ink); }
 
+/* Night / Day switch: two labelled options, the active one filled. */
+.daynight {
+  display: inline-flex; align-items: center; gap: 2px; height: 28px; padding: 2px; margin-left: 4px;
+  border: 1px solid var(--line-strong); border-radius: var(--r-md); background: var(--surface-2);
+}
+.daynight button {
+  display: inline-flex; align-items: center; gap: 6px; height: 100%; padding: 0 10px 0 8px; border: 0;
+  border-radius: 6px; background: none; color: var(--muted); font-size: 12px; font-weight: 550;
+}
+.daynight button:hover { color: var(--ink); }
+.daynight button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); box-shadow: var(--shadow-sm); }
+.daynight .ico { display: inline-grid; place-items: center; }
+.daynight svg { width: 14px; height: 14px; }
+
 /* ---------- layout ---------- */
 .layout {
   display: grid; grid-template-columns: minmax(0, 1fr) var(--panel-w); gap: 12px;
@@ -389,6 +403,9 @@ h1 { margin: 0; font-size: 14px; font-weight: 650; letter-spacing: -0.01em; whit
   .meta, .install { display: none; }
   .live-long { display: none; }
   .live-short { display: inline; }
+  .daynight { margin-left: 0; }
+  .daynight button { width: 30px; padding: 0; justify-content: center; }
+  .daynight .lbl { display: none; }
   .layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(220px, 40dvh) minmax(0, 1fr); gap: 8px; padding: 0 8px 8px; }
   .stage-bar { left: 8px; right: 8px; bottom: 8px; }
   .hint { display: none; }

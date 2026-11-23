@@ -1,51 +1,89 @@
-import { demoRoutes, fillCached, peekFill } from "./routes"
+import { fillCached, peekFill } from "./routes"
 import { createParticleGlobe, DEFAULT_MARKERS, DEFAULT_OPTIONS, REGIONS, type ArcRoute, type MarkerPlace, type GlobeInput, type GlobeOptions, type RegionName } from "../src/index"
 
 // ---------- presets ----------
-// Each preset is a designed pair: `shared` holds the character (shape, motion, dot behaviour),
-// `light` and `dark` hold the full look for that theme (stage, dots, rim, globe fill, arcs).
+// Every preset shares Ocean's feel (dot density, size, twinkle, particles, arc speed, icons, the 18 routes).
+// A preset only supplies colour: `colors`, `gradientAngle`, `background`, `rim`, `globe`, `arcs.colors`,
+// `markers.color`. `resolve()` applies the feel first and then a colour-only filter of the preset, so a
+// preset cannot change the feel even by accident.
 type Theme = "light" | "dark"
 type Swatch = [string, string, string]
-type Preset = { name: string; swatch: Swatch; swatchAlt?: Partial<Record<Theme, Swatch>>; shared?: GlobeInput; light: GlobeInput; dark: GlobeInput; atmo: Record<Theme, string> }
+type Preset = {
+  name: string
+  swatch: Swatch
+  swatchAlt?: Partial<Record<Theme, Swatch>>
+  atmo: Record<Theme, string>
+  /** What the preset shows, not how it looks (Cities: arcs off, markers on). */
+  mode?: GlobeInput
+  shared?: GlobeInput
+  light: GlobeInput
+  dark: GlobeInput
+}
+const OCEAN_ROUTES: ArcRoute[] = [
+  { from: [53.35, -6.26], to: [1.35, 103.82], label: "Singapore" },
+  { from: [-34.6, -58.38], to: [19.43, -99.13], label: "Mexico City" },
+  { from: [-26.2, 28.05], to: [-36.85, 174.76], label: "Auckland" },
+  { from: [6.52, 3.38], to: [24.86, 67.01], label: "Karachi" },
+  { from: [29.76, -95.37], to: [21.31, -157.86], label: "Honolulu" },
+  { from: [52.52, 13.41], to: [-8.05, -34.88], label: "Recife" },
+  { from: [-18.14, 178.44], to: [39.9, 116.41], label: "Beijing" },
+  { from: [59.33, 18.07], to: [8.98, -79.52], label: "Panama City" },
+  { from: [-4.44, 15.27], to: [-23.55, -46.63], label: "Sao Paulo" },
+  { from: [60.17, 24.94], to: [43.12, 131.89], label: "Vladivostok" },
+  { from: [-1.29, 36.82], to: [6.93, 79.86], label: "Colombo" },
+  { from: [25.76, -80.19], to: [64.15, -21.94], label: "Reykjavik" },
+  { from: [13.76, 100.5], to: [-9.44, 147.18], label: "Port Moresby" },
+  { from: [-3.12, -60.02], to: [51.51, -0.13], label: "London" },
+  { from: [62.04, 129.74], to: [41.88, -87.63], label: "Chicago" },
+  { from: [-33.92, 18.42], to: [9.03, 38.74], label: "Addis Ababa" },
+  { from: [23.81, 90.41], to: [55.76, 37.62], label: "Moscow" },
+  { from: [41.01, 28.98], to: [5.6, -0.19], label: "Accra" },
+]
+/** The behaviour every preset shares (Micky, 2026-11-23: he loves how Ocean feels). */
+const OCEAN_FEEL: GlobeInput = {
+  dots: { size: 0.65, sizeVariation: 2.5, density: 2.5, twinkle: 1, highlight: 0.5 },
+  particles: { amount: 0.33, size: 0.55, rise: 0.07, speed: 0.39, opacity: 1 },
+  arcs: { routes: OCEAN_ROUTES, speed: 0.5, icons: { size: 0.5 } },
+}
+/** The part of the feel that depends on the theme (brightness and arc strength). */
+const THEME_FEEL: Record<Theme, GlobeInput> = {
+  light: { dots: { intensity: 1.2 }, arcs: { opacity: 0.55 } },
+  dark: { dots: { intensity: 1.77, farSide: 0.4 }, arcs: { opacity: 0.35 } },
+}
+/** Keep only colour keys of a preset's input; anything about feel is dropped. */
+function colourOnly(i: GlobeInput | undefined): GlobeInput {
+  const s: any = i ?? {}
+  const out: any = {}
+  for (const k of ["colors", "gradientAngle", "background"]) if (k in s) out[k] = s[k]
+  const pick = (g: string, keys: string[]) => {
+    if (!isObjIn(s[g])) return
+    const o: any = {}
+    for (const k of keys) if (k in s[g]) o[k] = s[g][k]
+    if (Object.keys(o).length) out[g] = o
+  }
+  pick("rim", ["color", "strength"])
+  pick("globe", ["fill", "fillOpacity"])
+  pick("arcs", ["colors"])
+  pick("markers", ["color"])
+  return out
+}
+const isObjIn = (v: unknown): v is Record<string, any> => !!v && typeof v === "object" && !Array.isArray(v)
+
 const PRESETS: Preset[] = [
   {
-    // The opening look (Micky, 2026-11-23): sky-blue dots on a deep navy globe, many slow arcs.
+    // The opening look: sky-blue dots on a deep navy globe.
     name: "Ocean",
     swatch: ["#7dd3fc", "#38bdf8", "#e0f2fe"],
     swatchAlt: { light: ["#0369a1", "#0ea5e9", "#7dd3fc"] },
     atmo: { light: "#7dd3fc", dark: "#38bdf8" },
-    shared: {
-      gradientAngle: 200,
-      dots: { size: 0.65, sizeVariation: 2.5, density: 2.5, twinkle: 1, highlight: 0.5 },
-      particles: { amount: 0.33, size: 0.55, rise: 0.07, speed: 0.39, opacity: 1 },
-      arcs: { routes: [
-      { from: [53.35, -6.26], to: [1.35, 103.82], label: "Singapore" },
-      { from: [-34.6, -58.38], to: [19.43, -99.13], label: "Mexico City" },
-      { from: [-26.2, 28.05], to: [-36.85, 174.76], label: "Auckland" },
-      { from: [6.52, 3.38], to: [24.86, 67.01], label: "Karachi" },
-      { from: [29.76, -95.37], to: [21.31, -157.86], label: "Honolulu" },
-      { from: [52.52, 13.41], to: [-8.05, -34.88], label: "Recife" },
-      { from: [-18.14, 178.44], to: [39.9, 116.41], label: "Beijing" },
-      { from: [59.33, 18.07], to: [8.98, -79.52], label: "Panama City" },
-      { from: [-4.44, 15.27], to: [-23.55, -46.63], label: "Sao Paulo" },
-      { from: [60.17, 24.94], to: [43.12, 131.89], label: "Vladivostok" },
-      { from: [-1.29, 36.82], to: [6.93, 79.86], label: "Colombo" },
-      { from: [25.76, -80.19], to: [64.15, -21.94], label: "Reykjavik" },
-      { from: [13.76, 100.5], to: [-9.44, 147.18], label: "Port Moresby" },
-      { from: [-3.12, -60.02], to: [51.51, -0.13], label: "London" },
-      { from: [62.04, 129.74], to: [41.88, -87.63], label: "Chicago" },
-      { from: [-33.92, 18.42], to: [9.03, 38.74], label: "Addis Ababa" },
-      { from: [23.81, 90.41], to: [55.76, 37.62], label: "Moscow" },
-      { from: [41.01, 28.98], to: [5.6, -0.19], label: "Accra" },
-    ], opacity: 0.35, speed: 0.5, icons: { size: 0.5 } },
-    },
+    shared: { gradientAngle: 200 },
     light: {
-      colors: ["#0369a1", "#0ea5e9", "#38bdf8"], dots: { intensity: 1.2 },
-      rim: { color: "#bfdbfe", strength: 1 }, arcs: { colors: ["#0284c7", "#6366f1"], opacity: 0.55 },
+      colors: ["#0369a1", "#0ea5e9", "#38bdf8"],
+      rim: { color: "#bfdbfe", strength: 1 }, arcs: { colors: ["#0284c7", "#6366f1"] },
       globe: { fill: "#ffffff", fillOpacity: 0.96 }, background: "#eff6ff",
     },
     dark: {
-      colors: ["#7dd3fc", "#38bdf8", "#e0f2fe"], dots: { intensity: 1.77, farSide: 0.4 },
+      colors: ["#7dd3fc", "#38bdf8", "#e0f2fe"],
       rim: { color: "#1e4a7a", strength: 0.8 }, arcs: { colors: ["#7dd3fc", "#a5b4fc"] },
       globe: { fill: "#0a1b2e", fillOpacity: 0.92 }, background: "#06101c",
     },
@@ -54,10 +92,10 @@ const PRESETS: Preset[] = [
     name: "Stripe",
     swatch: ["#6b54f5", "#db61db", "#eb4d54"],
     atmo: { light: "#9e94ff", dark: "#7c6cff" },
-    light: { background: "#ffffff" },
+    shared: { gradientAngle: 57 },
+    light: { colors: ["#5b43e8", "#c026d3", "#e11d48"], background: "#ffffff" },
     dark: {
-      colors: ["#8f7bff", "#e873e8", "#ff6b78"], gradientAngle: 57,
-      dots: { highlight: 0.55, intensity: 1.1, farSide: 0.4 },
+      colors: ["#8f7bff", "#e873e8", "#ff6b78"],
       rim: { color: "#5b46e0", strength: 0.75 },
       arcs: { colors: ["#ff7fa3", "#ffb36b"] },
       globe: { fill: "#110e2b", fillOpacity: 0.92 }, background: "#0a0820",
@@ -68,13 +106,14 @@ const PRESETS: Preset[] = [
     name: "Cities",
     swatch: ["#0f766e", "#0ea5e9", "#6366f1"],
     atmo: { light: "#5eead4", dark: "#2dd4bf" },
-    shared: { gradientAngle: 80, arcs: false, markers: { ...DEFAULT_MARKERS } },
+    mode: { arcs: false, markers: { ...DEFAULT_MARKERS } },
+    shared: { gradientAngle: 80 },
     light: {
-      colors: ["#0f766e", "#0ea5e9", "#6366f1"], dots: { highlight: 0.6 },
+      colors: ["#0f766e", "#0369a1", "#4338ca"],
       rim: { color: "#d4ece8", strength: 1 }, markers: { color: "#e5484d" }, background: "#f3f8f7",
     },
     dark: {
-      colors: ["#2dd4bf", "#38bdf8", "#818cf8"], dots: { highlight: 0.45, intensity: 1.1, farSide: 0.4 },
+      colors: ["#5eead4", "#38bdf8", "#a5b4fc"],
       rim: { color: "#0f766e", strength: 0.7 }, markers: { color: "#fbbf24" },
       globe: { fill: "#07191c", fillOpacity: 0.92 }, background: "#041012",
     },
@@ -86,14 +125,12 @@ const PRESETS: Preset[] = [
     shared: { gradientAngle: 90 },
     light: {
       colors: ["#2563eb", "#0891b2", "#7c3aed"],
-      dots: { highlight: 0.6, intensity: 1.05 },
       rim: { color: "#c3d3f5", strength: 1 },
       arcs: { colors: ["#0e7490", "#a21caf"] },
       globe: { fill: "#ffffff", fillOpacity: 0.96 }, background: "#eef3fc",
     },
     dark: {
       colors: ["#3b82f6", "#22d3ee", "#a78bfa"],
-      dots: { highlight: 0.4, intensity: 1.1, farSide: 0.45 },
       rim: { color: "#3b5bdb", strength: 0.8 },
       arcs: { colors: ["#22d3ee", "#f0abfc"] },
       globe: { fill: "#0b1224", fillOpacity: 0.9 }, background: "#070b16",
@@ -105,12 +142,11 @@ const PRESETS: Preset[] = [
     atmo: { light: "#4cc283", dark: "#2fb673" },
     shared: { gradientAngle: 70 },
     light: {
-      colors: ["#0f5132", "#1d7a49", "#4cc283"], dots: { highlight: 0.6 },
+      colors: ["#0f5132", "#1d7a49", "#4cc283"],
       rim: { color: "#dcefe3" }, arcs: { colors: ["#1d7a49", "#a3e635"] }, background: "#f4f6f2",
     },
     dark: {
       colors: ["#1f9d63", "#4cc283", "#bef264"],
-      dots: { highlight: 0.5, intensity: 1.1, farSide: 0.4 },
       rim: { color: "#1d7a49", strength: 0.7 },
       arcs: { colors: ["#4ade80", "#d9f99d"] },
       globe: { fill: "#0a1a11", fillOpacity: 0.92 }, background: "#060f0a",
@@ -122,12 +158,12 @@ const PRESETS: Preset[] = [
     swatchAlt: { dark: ["#f3f4f6", "#d1d5db", "#9ca3af"] },
     atmo: { light: "#9ca3af", dark: "#9ca3af" },
     light: {
-      colors: ["#111827", "#111827", "#111827"], dots: { highlight: 0.65, twinkle: 0.15 },
-      rim: { color: "#f1f2f4" }, arcs: { colors: ["#111827", "#111827"], opacity: 0.85 }, background: "#ffffff",
+      colors: ["#05070d", "#05070d", "#05070d"],
+      rim: { color: "#f1f2f4" }, arcs: { colors: ["#111827", "#111827"] }, background: "#ffffff",
     },
     dark: {
-      colors: ["#f3f4f6", "#f3f4f6", "#f3f4f6"], dots: { highlight: 0.6, twinkle: 0.15, farSide: 0.35 },
-      rim: { color: "#2c2c2f", strength: 0.8 }, arcs: { colors: ["#f3f4f6", "#f3f4f6"], opacity: 0.85 },
+      colors: ["#f3f4f6", "#f3f4f6", "#f3f4f6"],
+      rim: { color: "#2c2c2f", strength: 0.8 }, arcs: { colors: ["#f3f4f6", "#f3f4f6"] },
       globe: { fill: "#111112", fillOpacity: 1 }, background: "#09090a",
     },
   },
@@ -137,29 +173,14 @@ const PRESETS: Preset[] = [
     atmo: { light: "#fb923c", dark: "#f97316" },
     shared: { gradientAngle: 120 },
     light: {
-      colors: ["#ea580c", "#db2777", "#d99a06"], dots: { highlight: 0.55 },
+      colors: ["#d9440a", "#c01a63", "#b97a00"],
       rim: { color: "#fcd9bd", strength: 1 }, arcs: { colors: ["#c2410c", "#be185d"] },
       globe: { fill: "#ffffff", fillOpacity: 0.96 }, background: "#fff5ec",
     },
     dark: {
-      colors: ["#f97316", "#ec4899", "#fde047"], dots: { highlight: 0.35, farSide: 0.4 },
+      colors: ["#f97316", "#ec4899", "#fde047"],
       rim: { color: "#7c2d12", strength: 0.7 }, arcs: { colors: ["#fde047", "#fb7185"] },
       globe: { fill: "#20121a", fillOpacity: 0.92 }, background: "#1a0f14",
-    },
-  },
-  {
-    name: "Ice",
-    swatch: ["#94a3b8", "#60a5fa", "#e0f2fe"],
-    atmo: { light: "#93c5fd", dark: "#7dd3fc" },
-    shared: { gradientAngle: 200, dots: { size: 1.3, density: 0.8 } },
-    light: {
-      colors: ["#94a3b8", "#60a5fa", "#e0f2fe"], dots: { highlight: 0.5, intensity: 1.2 },
-      rim: { color: "#dbeafe" }, arcs: { colors: ["#38bdf8", "#818cf8"] }, globe: { fill: "#f8fbff" }, background: "#eef5fc",
-    },
-    dark: {
-      colors: ["#7dd3fc", "#38bdf8", "#e0f2fe"], dots: { highlight: 0.5, intensity: 1.15, farSide: 0.4 },
-      rim: { color: "#1e4a7a", strength: 0.8 }, arcs: { colors: ["#7dd3fc", "#a5b4fc"] },
-      globe: { fill: "#0a1b2e", fillOpacity: 0.92 }, background: "#06101c",
     },
   },
   {
@@ -167,16 +188,16 @@ const PRESETS: Preset[] = [
     swatch: ["#f6f3ec", "#b8b4ae", "#8a8a8a"],
     swatchAlt: { light: ["#161616", "#4a4a4a", "#8a8a8a"] },
     atmo: { light: "#8a8a8a", dark: "#b8b4ae" },
-    shared: { gradientAngle: 300, particles: { amount: 0.35, opacity: 0.5 } },
+    shared: { gradientAngle: 300 },
     light: {
-      colors: ["#161616", "#4a4a4a", "#8a8a8a"], dots: { intensity: 1, density: 0.6, highlight: 0.6, twinkle: 0.2 },
+      colors: ["#0a0a0a", "#2f2f2f", "#666666"],
       rim: { color: "#dedad1", strength: 1 }, globe: { fill: "#fbfaf6", fillOpacity: 1 },
-      arcs: { colors: ["#7a7a7a", "#111111"], opacity: 0.9 }, background: "#f3f0e8",
+      arcs: { colors: ["#7a7a7a", "#111111"] }, background: "#f3f0e8",
     },
     dark: {
-      colors: ["#f6f3ec", "#b8b4ae", "#8a8a8a"], dots: { intensity: 1.1, density: 0.6, highlight: 0.6, twinkle: 0.25 },
+      colors: ["#f6f3ec", "#b8b4ae", "#8a8a8a"],
       rim: { color: "#3a3a3a", strength: 0.6 }, globe: { fill: "#121212", fillOpacity: 1 },
-      arcs: { colors: ["#8a8a8a", "#f6f3ec"], opacity: 0.9 }, background: "#0a0a0b",
+      arcs: { colors: ["#8a8a8a", "#f6f3ec"] }, background: "#0a0a0b",
     },
   },
 ]
@@ -295,10 +316,11 @@ function merge(base: any, patch: any): any {
   return out
 }
 let theme: Theme = "light"
-// The library's sample routes cross each other, so the demo starts from a generated set that doesn't.
-const DEMO_ROUTES = demoRoutes()
-const DEMO_DEFAULTS: GlobeOptions = merge(DEFAULT_OPTIONS, { arcs: { routes: DEMO_ROUTES } })
-const resolve = (preset: Preset, t: Theme = theme): GlobeOptions => merge(merge(DEMO_DEFAULTS, preset.shared ?? {}), preset[t])
+// The library's sample routes cross each other, so the demo starts from Ocean's hand-picked set instead.
+const DEMO_DEFAULTS: GlobeOptions = merge(DEFAULT_OPTIONS, OCEAN_FEEL)
+/** Defaults, then Ocean's feel, then the preset's colours (colour keys only, so the feel can't be overridden). */
+const resolve = (preset: Preset, t: Theme = theme): GlobeOptions =>
+  [OCEAN_FEEL, THEME_FEEL[t], preset.mode ?? {}, colourOnly(preset.shared), colourOnly(preset[t])].reduce<GlobeOptions>((acc, part) => merge(acc, part), DEMO_DEFAULTS)
 /** Drop every colour from an edits object (the shape `diff` returns). True if anything was dropped. */
 function stripColours(e: any): boolean {
   let hit = false
@@ -1300,12 +1322,11 @@ const copy = (text: string, done: string) =>
     () => flash("Couldn't reach the clipboard. Select the text instead."),
   )
 
-const themeBtn = document.getElementById("theme")!
+const themeSwitch = document.getElementById("theme")!
+const themeBtns = Array.from(themeSwitch.querySelectorAll<HTMLButtonElement>("button[data-theme-set]"))
+themeBtns.forEach((b) => (b.querySelector<HTMLElement>(".ico")!.innerHTML = b.dataset.themeSet === "dark" ? MOON : SUN))
 const paintTheme = () => {
-  themeBtn.innerHTML = isDark() ? SUN : MOON
-  const label = isDark() ? "Switch to light theme" : "Switch to dark theme"
-  themeBtn.title = label
-  themeBtn.setAttribute("aria-label", label)
+  for (const b of themeBtns) b.setAttribute("aria-pressed", String((b.dataset.themeSet === "dark") === isDark()))
 }
 /** Re-skin the globe for the current theme. Non-colour edits (projection, centre, routes, tweaks) carry over; edited colours reset. */
 function retheme() {
@@ -1331,16 +1352,17 @@ function retheme() {
   refresh()
   if (hadColours) flash(`Colours reset to the ${theme} look`)
 }
-themeBtn.addEventListener("click", () => {
-  const next = isDark() ? "light" : "dark"
-  docEl.dataset.theme = next
-  try {
-    localStorage.setItem("pg-theme", next)
-  } catch {
-    /* private mode */
-  }
-  retheme()
-})
+for (const b of themeBtns)
+  b.addEventListener("click", () => {
+    const next = b.dataset.themeSet === "dark" ? "dark" : "light"
+    docEl.dataset.theme = next
+    try {
+      localStorage.setItem("pg-theme", next)
+    } catch {
+      /* private mode */
+    }
+    retheme()
+  })
 // With no saved or shared choice the page follows the system setting, live.
 systemDark.addEventListener("change", () => {
   if (!docEl.dataset.theme) retheme()

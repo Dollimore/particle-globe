@@ -46,7 +46,10 @@
         <button id="copy-install" class="install" type="button" title="Copy install command"><code>npm i particle-globe</code></button>
         <a class="link" href="https://github.com/Dollimore/particle-globe">GitHub</a>
         <a class="link live" href="https://mickydollimore.com/services/" title="The globe on mickydollimore.com"><span class="live-long">See it on a live site</span><span class="live-short">Live site</span></a>
-        <button id="theme" class="icon-btn" type="button" aria-label="Switch colour theme" title="Switch colour theme"></button>
+        <div id="theme" class="daynight" role="group" aria-label="Colour theme">
+          <button type="button" data-theme-set="dark" aria-pressed="false" title="Night theme"><span class="ico" data-icon="moon"></span><span class="lbl">Night</span></button>
+          <button type="button" data-theme-set="light" aria-pressed="false" title="Day theme"><span class="ico" data-icon="sun"></span><span class="lbl">Day</span></button>
+        </div>
       </nav>
     </header>
 
