@@ -9,6 +9,48 @@ type Swatch = [string, string, string]
 type Preset = { name: string; swatch: Swatch; swatchAlt?: Partial<Record<Theme, Swatch>>; shared?: GlobeInput; light: GlobeInput; dark: GlobeInput; atmo: Record<Theme, string> }
 const PRESETS: Preset[] = [
   {
+    // The opening look (Micky, 2026-11-23): sky-blue dots on a deep navy globe, many slow arcs.
+    name: "Ocean",
+    swatch: ["#7dd3fc", "#38bdf8", "#e0f2fe"],
+    swatchAlt: { light: ["#0369a1", "#0ea5e9", "#7dd3fc"] },
+    atmo: { light: "#7dd3fc", dark: "#38bdf8" },
+    shared: {
+      gradientAngle: 200,
+      dots: { size: 0.65, sizeVariation: 2.5, density: 2.5, twinkle: 1, highlight: 0.5 },
+      particles: { amount: 0.33, size: 0.55, rise: 0.07, speed: 0.39, opacity: 1 },
+      arcs: { routes: [
+      { from: [53.35, -6.26], to: [1.35, 103.82], label: "Singapore" },
+      { from: [-34.6, -58.38], to: [19.43, -99.13], label: "Mexico City" },
+      { from: [-26.2, 28.05], to: [-36.85, 174.76], label: "Auckland" },
+      { from: [6.52, 3.38], to: [24.86, 67.01], label: "Karachi" },
+      { from: [29.76, -95.37], to: [21.31, -157.86], label: "Honolulu" },
+      { from: [52.52, 13.41], to: [-8.05, -34.88], label: "Recife" },
+      { from: [-18.14, 178.44], to: [39.9, 116.41], label: "Beijing" },
+      { from: [59.33, 18.07], to: [8.98, -79.52], label: "Panama City" },
+      { from: [-4.44, 15.27], to: [-23.55, -46.63], label: "Sao Paulo" },
+      { from: [60.17, 24.94], to: [43.12, 131.89], label: "Vladivostok" },
+      { from: [-1.29, 36.82], to: [6.93, 79.86], label: "Colombo" },
+      { from: [25.76, -80.19], to: [64.15, -21.94], label: "Reykjavik" },
+      { from: [13.76, 100.5], to: [-9.44, 147.18], label: "Port Moresby" },
+      { from: [-3.12, -60.02], to: [51.51, -0.13], label: "London" },
+      { from: [62.04, 129.74], to: [41.88, -87.63], label: "Chicago" },
+      { from: [-33.92, 18.42], to: [9.03, 38.74], label: "Addis Ababa" },
+      { from: [23.81, 90.41], to: [55.76, 37.62], label: "Moscow" },
+      { from: [41.01, 28.98], to: [5.6, -0.19], label: "Accra" },
+    ], opacity: 0.35, speed: 0.5, icons: { size: 0.5 } },
+    },
+    light: {
+      colors: ["#0369a1", "#0ea5e9", "#38bdf8"], dots: { intensity: 1.2 },
+      rim: { color: "#bfdbfe", strength: 1 }, arcs: { colors: ["#0284c7", "#6366f1"], opacity: 0.55 },
+      globe: { fill: "#ffffff", fillOpacity: 0.96 }, background: "#eff6ff",
+    },
+    dark: {
+      colors: ["#7dd3fc", "#38bdf8", "#e0f2fe"], dots: { intensity: 1.77, farSide: 0.4 },
+      rim: { color: "#1e4a7a", strength: 0.8 }, arcs: { colors: ["#7dd3fc", "#a5b4fc"] },
+      globe: { fill: "#0a1b2e", fillOpacity: 0.92 }, background: "#06101c",
+    },
+  },
+  {
     name: "Stripe",
     swatch: ["#6b54f5", "#db61db", "#eb4d54"],
     atmo: { light: "#9e94ff", dark: "#7c6cff" },
@@ -331,7 +373,7 @@ function parseColour(raw: string): string | null {
 }
 
 // ---------- state ----------
-let presetName = "Stripe"
+let presetName = "Ocean"
 const docEl = document.documentElement
 const systemDark = matchMedia("(prefers-color-scheme: dark)")
 const isDark = () => (docEl.dataset.theme ? docEl.dataset.theme === "dark" : systemDark.matches)
@@ -344,6 +386,8 @@ try {
 }
 // A theme carried by a share link wins for this visit but is not saved as the visitor's choice.
 if (saved.theme === "light" || saved.theme === "dark") docEl.dataset.theme = saved.theme
+// First visit opens in dark: the Ocean look is designed dark-first. A saved choice or a share link still wins.
+if (!docEl.dataset.theme) docEl.dataset.theme = "dark"
 theme = isDark() ? "dark" : "light"
 let base: GlobeOptions = resolve(PRESETS[0])
 let state: GlobeOptions = clone(base)
